@@ -34,7 +34,7 @@
  *   +--------------------------+
  *   ----------------------------
  *        fastboot devices        <- accent
- *     [RECOVERY] [SYSTEM]  <- small reboot buttons
+ *     [RECOVERY] [POWER OFF]  <- small reboot buttons
  */
 
 #include <string.h>
@@ -195,37 +195,13 @@ static void ui_info_collect(void)
 	if (sn_buf[0] && strcmp(sn_buf, "0123456789ABCDEF") != 0)
 		ui_info_add("SERIAL", sn_buf, NOVA_TEXT);
 
-	/*
-	 * Installed RAM, summed from the DRAM ranks the preloader detected
-	 * and handed over in the boot arguments (a measured value).
-	 */
+	/* Preloader version is the bootloader's own build string. */
 	if (g_boot_arg) {
-		u64 total = 0;
-		u32 i;
-
-		for (i = 0; i < g_boot_arg->dram_rank_num && i < 4; i++)
-			total += g_boot_arg->dram_rank_size[i];
-
-		if (total) {
-			u32 mb = (u32)(total >> 20);
-
-			if (mb >= 1024 && (mb % 1024) == 0)
-				snprintf(buf, sizeof(buf), "%u GB", mb / 1024);
-			else
-				snprintf(buf, sizeof(buf), "%u MB", mb);
-			ui_info_add("RAM", buf, NOVA_TEXT);
-		}
-
-		/* Preloader version string as reported by the preloader. */
 		ui_copy_str(buf, sizeof(buf), g_boot_arg->pl_version,
 			    sizeof(g_boot_arg->pl_version));
 		if (buf[0])
-			ui_info_add("PRELOADER", buf, NOVA_TEXT);
+			ui_info_add("BOOTLOADER", buf, NOVA_TEXT);
 	}
-
-	/* Compile time stamp of this bootloader. */
-	snprintf(buf, sizeof(buf), "%s", __DATE__);
-	ui_info_add("LK BUILD", buf, NOVA_TEXT);
 
 	hw = mt_get_chip_hw_ver();
 	if (hw) {
@@ -309,9 +285,9 @@ static void ui_paint_status(int online)
 #define UI_BTN_W	250
 #define UI_BTN_GAP	24
 
-enum { BTN_RECOVERY = 0, BTN_SYSTEM = 1, BTN_COUNT = 2 };
+enum { BTN_RECOVERY = 0, BTN_POWEROFF = 1, BTN_COUNT = 2 };
 
-static const char *const g_btn_label[BTN_COUNT] = { "RECOVERY", "SYSTEM" };
+static const char *const g_btn_label[BTN_COUNT] = { "RECOVERY", "POWER OFF" };
 static int g_btn_x[BTN_COUNT], g_btn_y;
 
 static void ui_paint_button(int idx, int pressed)
@@ -343,16 +319,41 @@ static int ui_btn_hit(int x, int y)
 	return -1;
 }
 
-/* Same sequence the fastboot "reboot" / "reboot-recovery" commands use. */
+extern kal_bool pmic_chrdet_status(void);
+
+/*
+ * RECOVERY: ask the next boot to go straight to recovery.  Android's own
+ * "reboot recovery" request (RTC recovery bit alone) is deliberately ignored
+ * by boot_mode_select(), so this uses a marker only NovaLK produces: the
+ * recovery bit together with the fastboot bit.  boot_mode_select() turns it
+ * into the same RECOVERY_BOOT the boot menu entry selects.
+ *
+ * POWER OFF: pull PWRBB low.  With a charger or USB cable attached the PMIC
+ * cannot stay off, so (like the stock LK) fall back to a reset, which ends
+ * in the charger-only boot path.
+ */
 static void ui_reboot(int idx)
 {
-	if (idx == BTN_RECOVERY)
-		Set_RTC_Recovery_Mode(1);
+	int i;
 
 	/* Disconnect USB first so the host does not hang on a dead device. */
 	udc_stop();
 	mdelay(500);
-	mtk_arch_reset(1);
+
+	if (idx == BTN_RECOVERY) {
+		Set_RTC_Recovery_Mode(1);
+		Set_Clr_RTC_PDN1_bit13(true);
+		mtk_arch_reset(1);
+		return;
+	}
+
+	rtc_bbpu_power_down();
+	for (i = 0; i < 10; i++) {
+		mdelay(100);
+		if (pmic_chrdet_status() == KAL_TRUE)
+			break;
+	}
+	mtk_arch_reset(0);
 }
 
 /*
@@ -530,12 +531,12 @@ void novalk_fastboot_ui_show(void)
 		       "fastboot devices");
 	y += line_h + 28;
 
-	/* Two small reboot buttons side by side: recovery and system. */
+	/* Two small reboot buttons side by side: recovery and power off. */
 	g_btn_y = y;
 	g_btn_x[BTN_RECOVERY] = w / 2 - UI_BTN_GAP / 2 - UI_BTN_W;
-	g_btn_x[BTN_SYSTEM] = w / 2 + UI_BTN_GAP / 2;
+	g_btn_x[BTN_POWEROFF] = w / 2 + UI_BTN_GAP / 2;
 	ui_paint_button(BTN_RECOVERY, 0);
-	ui_paint_button(BTN_SYSTEM, 0);
+	ui_paint_button(BTN_POWEROFF, 0);
 
 	video_refresh();
 

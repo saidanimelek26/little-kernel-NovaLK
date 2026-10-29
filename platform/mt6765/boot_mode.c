@@ -126,8 +126,20 @@ void boot_mode_select(void)
 #if defined(HAVE_LK_TEXT_MENU) || defined(MTK_FASTBOOT_SUPPORT)
 	/*Check RTC to know if system want to reboot to Fastboot*/
 	if (Check_RTC_PDN1_bit13()) {
-		g_boot_mode = FASTBOOT;
 		Set_Clr_RTC_PDN1_bit13(false);
+		if (Check_RTC_Recovery_Mode()) {
+			/*
+			 * NovaLK: the RECOVERY button of the fastboot screen sets
+			 * the recovery and fastboot RTC bits together.  Android
+			 * never does that, so it is unambiguous.  Boot recovery
+			 * exactly as the boot menu entry does.
+			 */
+			Set_RTC_Recovery_Mode(false);
+			g_boot_mode = RECOVERY_BOOT;
+			dprintf(CRITICAL, "[NOVALK] reboot to recovery requested\n");
+			return;
+		}
+		g_boot_mode = FASTBOOT;
 	}
 
 	/*Check RGU to know if system want to reboot to Fastboot*/
