@@ -7,4 +7,5 @@ INCLUDES += \
 
 OBJS += \
 	$(LOCAL_DIR)/boot_menu.o \
-	$(LOCAL_DIR)/fastboot_ui.o
+	$(LOCAL_DIR)/fastboot_ui.o \
+	$(LOCAL_DIR)/snake.o

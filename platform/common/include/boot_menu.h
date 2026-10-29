@@ -52,6 +52,14 @@ void boot_menu_select();
  * style; novalk_fastboot_ui_usb() repaints only the USB status card and is
  * safe to call before the screen exists (it does nothing then).
  */
+/*
+ * NovaLK Snake (platform/common/boot_menu/snake.c): a small touch game
+ * opened from the boot menu.  Returns when the player leaves the game.
+ * touch_ok tells whether tpd_read() may be used; without it the game is
+ * played with the volume keys.
+ */
+void novalk_snake_play(int touch_ok);
+
 void novalk_fastboot_ui_show(void);
 void novalk_fastboot_ui_usb(int online);
 

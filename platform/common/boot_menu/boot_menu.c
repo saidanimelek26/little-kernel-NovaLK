@@ -121,6 +121,9 @@ static int g_w, g_h;
 static int g_card_x, g_card_w, g_card_h, g_card_gap, g_cards_top;
 static int g_title_y, g_subtitle_y, g_device_y, g_credit_y, g_accent_y;
 static int g_footer_y;
+#define SNAKE_BTN_W	240
+#define SNAKE_BTN_H	56
+#define SNAKE_BTN_DY	80	/* below the first footer line */
 #ifdef MTK_TPD_SUPPORT
 static int g_touch_ok;
 #endif
@@ -273,6 +276,18 @@ static void novalk_paint_footer(void)
 		snprintf(tp, sizeof(tp), "tap to select, tap again  (%s)", tpd_name());
 		novalk_draw_text_center(g_w / 2, g_footer_y + 40, HINT_SCALE,
 					NOVA_TEXT_DIM, NOVA_BG, tp);
+		/* Small game button; only useful when touch works. */
+		video_fill_rect(NOVA_ACCENT, g_w / 2 - SNAKE_BTN_W / 2,
+				g_footer_y + SNAKE_BTN_DY, SNAKE_BTN_W,
+				SNAKE_BTN_H);
+		video_fill_rect(NOVA_SURFACE, g_w / 2 - SNAKE_BTN_W / 2 + 2,
+				g_footer_y + SNAKE_BTN_DY + 2, SNAKE_BTN_W - 4,
+				SNAKE_BTN_H - 4);
+		novalk_draw_text_center(g_w / 2,
+					g_footer_y + SNAKE_BTN_DY +
+					(SNAKE_BTN_H - 16 * DESC_SCALE) / 2,
+					DESC_SCALE, NOVA_ACCENT, NOVA_SURFACE,
+					"PLAY SNAKE");
 	} else {
 		novalk_draw_text_center(g_w / 2, g_footer_y + 40, HINT_SCALE,
 					NOVA_TEXT_DIM, NOVA_BG,
@@ -335,6 +350,17 @@ static int novalk_hit_test(int x, int y)
 
 	return -1;
 }
+
+#ifdef MTK_TPD_SUPPORT
+static int novalk_hit_snake(int x, int y)
+{
+	return g_touch_ok &&
+	       x >= g_w / 2 - SNAKE_BTN_W / 2 &&
+	       x < g_w / 2 + SNAKE_BTN_W / 2 &&
+	       y >= g_footer_y + SNAKE_BTN_DY &&
+	       y < g_footer_y + SNAKE_BTN_DY + SNAKE_BTN_H;
+}
+#endif
 
 void boot_menu_select(void)
 {
@@ -438,6 +464,25 @@ void boot_menu_select(void)
 					touch_latched = 1;
 					dprintf(INFO, "[BOOTMENU] touch %d,%d -> %d,%d hit %d\n",
 						tx, ty, sx, sy, hit);
+
+					if (novalk_hit_snake(sx, sy)) {
+						novalk_snake_play(1);
+
+						/* Back from the game: redraw everything. */
+						novalk_paint_background();
+						novalk_paint_header();
+						novalk_paint_cards(select);
+						novalk_paint_footer();
+#if NOVALK_TOUCH_DIAG
+						diag_sig = 0;
+						novalk_paint_diag();
+#endif
+						video_refresh();
+						prev_up = boot_menu_key_pressed(MT65XX_MENU_SELECT_KEY);
+						prev_down = boot_menu_key_pressed(MT65XX_MENU_OK_KEY);
+						prev_pwr = boot_menu_key_pressed(MTK_PMIC_PWR_KEY);
+						continue;
+					}
 
 					if (hit >= 0 && hit == select) {
 						/* Second tap on the highlighted card. */
