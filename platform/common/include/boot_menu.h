@@ -60,6 +60,17 @@ void boot_menu_select();
  */
 void novalk_snake_play(int touch_ok);
 
+/*
+ * Boot menu lock (platform/common/boot_menu/lock_ui.c, lock_store.c).
+ *
+ * novalk_lock_gate() blocks until the right PIN / pattern was entered; it
+ * returns immediately when no password is set.  novalk_lock_settings() is
+ * the SECURITY screen (set, change, remove).  touch_ok tells whether
+ * tpd_read() may be used; without it the hardware keys are used.
+ */
+void novalk_lock_gate(int touch_ok);
+void novalk_lock_settings(int touch_ok);
+
 void novalk_fastboot_ui_show(void);
 void novalk_fastboot_ui_usb(int online);
 

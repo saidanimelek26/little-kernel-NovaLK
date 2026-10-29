@@ -121,9 +121,12 @@ static int g_w, g_h;
 static int g_card_x, g_card_w, g_card_h, g_card_gap, g_cards_top;
 static int g_title_y, g_subtitle_y, g_device_y, g_credit_y, g_accent_y;
 static int g_footer_y;
-#define SNAKE_BTN_W	240
-#define SNAKE_BTN_H	56
-#define SNAKE_BTN_DY	80	/* below the first footer line */
+/* Two small buttons under the footer hints: PLAY SNAKE and SECURITY. */
+#define MENU_BTN_W	220
+#define MENU_BTN_H	56
+#define MENU_BTN_GAP	20
+#define MENU_BTN_DY	80	/* below the first footer line */
+enum { MENU_BTN_SNAKE = 0, MENU_BTN_SECURITY = 1, MENU_BTN_COUNT = 2 };
 #ifdef MTK_TPD_SUPPORT
 static int g_touch_ok;
 #endif
@@ -260,6 +263,25 @@ static void novalk_paint_cards(int select)
 		novalk_paint_card(i, i == select);
 }
 
+static int novalk_menu_btn_x(int idx)
+{
+	return g_w / 2 - MENU_BTN_W - MENU_BTN_GAP / 2 +
+	       idx * (MENU_BTN_W + MENU_BTN_GAP);
+}
+
+static void novalk_paint_menu_button(int idx, const char *label)
+{
+	int x = novalk_menu_btn_x(idx);
+	int y = g_footer_y + MENU_BTN_DY;
+
+	video_fill_rect(NOVA_ACCENT, x, y, MENU_BTN_W, MENU_BTN_H);
+	video_fill_rect(NOVA_SURFACE, x + 2, y + 2, MENU_BTN_W - 4,
+			MENU_BTN_H - 4);
+	novalk_draw_text_center(x + MENU_BTN_W / 2,
+				y + (MENU_BTN_H - 16 * DESC_SCALE) / 2,
+				DESC_SCALE, NOVA_ACCENT, NOVA_SURFACE, label);
+}
+
 static void novalk_paint_footer(void)
 {
 	video_fill_rect(NOVA_BG, 0, g_footer_y - 16, g_w,
@@ -276,18 +298,9 @@ static void novalk_paint_footer(void)
 		snprintf(tp, sizeof(tp), "tap to select, tap again  (%s)", tpd_name());
 		novalk_draw_text_center(g_w / 2, g_footer_y + 40, HINT_SCALE,
 					NOVA_TEXT_DIM, NOVA_BG, tp);
-		/* Small game button; only useful when touch works. */
-		video_fill_rect(NOVA_ACCENT, g_w / 2 - SNAKE_BTN_W / 2,
-				g_footer_y + SNAKE_BTN_DY, SNAKE_BTN_W,
-				SNAKE_BTN_H);
-		video_fill_rect(NOVA_SURFACE, g_w / 2 - SNAKE_BTN_W / 2 + 2,
-				g_footer_y + SNAKE_BTN_DY + 2, SNAKE_BTN_W - 4,
-				SNAKE_BTN_H - 4);
-		novalk_draw_text_center(g_w / 2,
-					g_footer_y + SNAKE_BTN_DY +
-					(SNAKE_BTN_H - 16 * DESC_SCALE) / 2,
-					DESC_SCALE, NOVA_ACCENT, NOVA_SURFACE,
-					"PLAY SNAKE");
+		/* Small buttons; only useful when touch works. */
+		novalk_paint_menu_button(MENU_BTN_SNAKE, "PLAY SNAKE");
+		novalk_paint_menu_button(MENU_BTN_SECURITY, "SECURITY");
 	} else {
 		novalk_draw_text_center(g_w / 2, g_footer_y + 40, HINT_SCALE,
 					NOVA_TEXT_DIM, NOVA_BG,
@@ -297,7 +310,7 @@ static void novalk_paint_footer(void)
 }
 
 #if defined(MTK_TPD_SUPPORT) && NOVALK_TOUCH_DIAG
-#define DIAG_Y_OFFSET	130
+#define DIAG_Y_OFFSET	150
 
 static void novalk_paint_diag(void)
 {
@@ -352,13 +365,24 @@ static int novalk_hit_test(int x, int y)
 }
 
 #ifdef MTK_TPD_SUPPORT
-static int novalk_hit_snake(int x, int y)
+/* MENU_BTN_* under (x, y), or -1. */
+static int novalk_hit_menu_button(int x, int y)
 {
-	return g_touch_ok &&
-	       x >= g_w / 2 - SNAKE_BTN_W / 2 &&
-	       x < g_w / 2 + SNAKE_BTN_W / 2 &&
-	       y >= g_footer_y + SNAKE_BTN_DY &&
-	       y < g_footer_y + SNAKE_BTN_DY + SNAKE_BTN_H;
+	int i;
+
+	if (!g_touch_ok)
+		return -1;
+
+	for (i = 0; i < MENU_BTN_COUNT; i++) {
+		int bx = novalk_menu_btn_x(i);
+
+		if (x >= bx && x < bx + MENU_BTN_W &&
+		    y >= g_footer_y + MENU_BTN_DY &&
+		    y < g_footer_y + MENU_BTN_DY + MENU_BTN_H)
+			return i;
+	}
+
+	return -1;
 }
 #endif
 
@@ -391,6 +415,16 @@ void boot_menu_select(void)
 		g_touch_ok = 0;
 		dprintf(INFO, "[BOOTMENU] touch: not available\n");
 	}
+#endif
+
+	/*
+	 * Password gate: blocks here until the right PIN / pattern is entered.
+	 * Returns at once when no password is set.
+	 */
+#ifdef MTK_TPD_SUPPORT
+	novalk_lock_gate(g_touch_ok);
+#else
+	novalk_lock_gate(0);
 #endif
 
 	novalk_layout();
@@ -460,15 +494,20 @@ void boot_menu_select(void)
 					int sx = tx * g_w / TPD_PANEL_WIDTH;
 					int sy = ty * g_h / TPD_PANEL_HEIGHT;
 					int hit = novalk_hit_test(sx, sy);
+					int btn;
 
 					touch_latched = 1;
 					dprintf(INFO, "[BOOTMENU] touch %d,%d -> %d,%d hit %d\n",
 						tx, ty, sx, sy, hit);
 
-					if (novalk_hit_snake(sx, sy)) {
-						novalk_snake_play(1);
+					btn = novalk_hit_menu_button(sx, sy);
+					if (btn >= 0) {
+						if (btn == MENU_BTN_SNAKE)
+							novalk_snake_play(1);
+						else
+							novalk_lock_settings(1);
 
-						/* Back from the game: redraw everything. */
+						/* Back to the menu: redraw everything. */
 						novalk_paint_background();
 						novalk_paint_header();
 						novalk_paint_cards(select);
