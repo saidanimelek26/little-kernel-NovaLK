@@ -1,23 +1,24 @@
-# Disclaimer
+## What is the NOVA LK project?
 
-This project is **not an official Realme release**, nor is it a leaked Realme source code release. It is a restructured and modified version of a leaked MediaTek Little Kernel (LK) project, adapted specifically for the **Realme C21**.
+**NOVA LK** is a development and modification project based on the official **Little Kernel (LK)** used in MediaTek-powered devices. It incorporates various features and enhancements designed to refine the bootloader experience, making it more advanced and functional.
 
-A significant number of changes have been made to the original project to accommodate this device and work around certain limitations imposed by Realme. For this reason, **I do not recommend using this repository as a base for porting LK to other devices**, especially if your device is not a Realme device. The modifications made for the Realme C21 may not be compatible with other hardware configurations.
+The project introduces a modern user interface (UI) with touchscreen support. The **Fastboot** interface has been redesigned to be more organized and user-friendly.
 
-## Supported LCM
+Additionally, the project includes an automated feature to retrieve device information, as well as a utility to verify the connection status between the phone and the computer.
 
-This project currently supports only one LCM configuration:
+A significant change involves the boot process: instead of booting directly into the operating system, the boot sequence has been modified to display a **menu** offering several options for the user to choose from, as shown in the image.
 
-- `hx83102D_truly_truly`
+Currently, the project exclusively supports the **Realme C21**, with plans to extend support to more MediaTek devices in future releases.
 
-If your device does not use this exact LCM configuration, **do not use this project as a base for your device**. Other display panels are not supported or tested.
+**NOVA LK is still under development; this is the project's initial version.** Future phases will focus on refining existing features, improving stability, and expanding the list of supported devices.
 
-## Android Version Compatibility
+The project aims to provide a unique **Custom LK** experience—combining a modern aesthetic with practical features—while remaining adaptable for future implementation on other MediaTek-based devices.
 
-This project has been adapted to work with **Android 11**. Compatibility with Android 10 has not been tested, and I cannot confirm whether it will work correctly on that version.
+## Supported Devices & Hardware
 
-## Important Notice
 
-Use this repository primarily for research and development on the Realme C21. Porting it to other devices is not recommended due to the device-specific modifications and Realme-related limitations.
-
-Use this project at your own risk. Compatibility with other devices, display panels, or Android versions is not guaranteed.
+| Category | Supported Configuration |
+|:---|:---|
+| **Device** | Realme C21 (RMX3201) |
+| **LCM** | `hx83102D_truly_truly` |
+| **Touchscreen** | Himax Touch |
