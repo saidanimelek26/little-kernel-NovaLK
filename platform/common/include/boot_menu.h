@@ -76,6 +76,14 @@ void novalk_lock_gate(int touch_ok);
  * Security, Power).  Returns when the user leaves it.
  */
 void novalk_os_run(int touch_ok);
+
+/*
+ * Wi-Fi bring-up, stage 1 (platform/common/boot_menu/consys.c): power up
+ * the connectivity block, read its ID registers, power it down again.
+ * Fills lines[] with a report (46 characters per line); returns 1 when the
+ * expected IP version was read.
+ */
+int novalk_consys_probe(char (*lines)[46], int max, int *count);
 void novalk_lock_settings(int touch_ok);
 
 void novalk_fastboot_ui_show(void);

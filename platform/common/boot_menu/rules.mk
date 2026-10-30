@@ -11,4 +11,5 @@ OBJS += \
 	$(LOCAL_DIR)/snake.o \
 	$(LOCAL_DIR)/lock_store.o \
 	$(LOCAL_DIR)/lock_ui.o \
-	$(LOCAL_DIR)/novaos.o
+	$(LOCAL_DIR)/novaos.o \
+	$(LOCAL_DIR)/consys.o

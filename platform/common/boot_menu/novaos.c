@@ -1046,6 +1046,79 @@ static void app_power(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* app: Wi-Fi (stage 1: power up the connectivity block)              */
+/* ------------------------------------------------------------------ */
+
+static void app_wifi(void)
+{
+	static char lines[16][46];
+	struct rect btn;
+	int count = 0;
+	int ran = 0;
+	int alive = 0;
+	int x = 0, y = 0, touching;
+	int i;
+
+	btn.w = 520;
+	btn.h = 110;
+	btn.x = (W - 520) / 2;
+	btn.y = H - 330;
+
+	app_begin("WI-FI");
+
+	for (;;) {
+		video_fill_rect(C_BG, 0, 120, W, H - 120);
+
+		if (!ran) {
+			text_center(W / 2, 170, 3, C_ERROR, C_BG, "EXPERIMENTAL");
+			text_center(W / 2, 250, 2, C_TEXT, C_BG,
+				    "Stage 1 of 7: power on the");
+			text_center(W / 2, 290, 2, C_TEXT, C_BG,
+				    "connectivity block and read");
+			text_center(W / 2, 330, 2, C_TEXT, C_BG,
+				    "its ID, then power it off.");
+			text_center(W / 2, 410, 2, C_DIM, C_BG,
+				    "Browsing is NOT available yet.");
+			text_center(W / 2, 480, 2, C_ERROR, C_BG,
+				    "If the screen freezes, hold");
+			text_center(W / 2, 520, 2, C_ERROR, C_BG,
+				    "POWER for 10 s to reboot.");
+		} else {
+			text_center(W / 2, 140, 3, alive ? C_OK : C_ERROR, C_BG,
+				    alive ? "CONNSYS ALIVE" : "NO VALID ID");
+			for (i = 0; i < count; i++)
+				video_draw_text(24, 220 + i * 40, 2,
+						C_TEXT, C_BG, lines[i]);
+		}
+
+		draw_button(&btn, ran ? "RUN AGAIN" : "RUN STAGE 1", 3, 0, 0);
+		video_refresh();
+
+		for (;;) {
+			int ev = in_poll(&x, &y, &touching);
+
+			if (app_back(ev, x, y))
+				return;
+
+			if ((ev & EV_TAP) && inside(&btn, x, y)) {
+				tap_feedback(&btn, ran ? "RUN AGAIN" : "RUN STAGE 1", 3);
+				text_center(W / 2, H - 440, 2, C_ACCENT, C_BG,
+					    "RUNNING...");
+				video_refresh();
+
+				count = 0;
+				alive = novalk_consys_probe(lines, 16, &count);
+				ran = 1;
+				in_init();
+				break;
+			}
+
+			mdelay(10);
+		}
+	}
+}
+
+/* ------------------------------------------------------------------ */
 /* wrappers for existing features                                     */
 /* ------------------------------------------------------------------ */
 
@@ -1077,6 +1150,7 @@ static const struct app apps[] = {
 	{ "Clock",    "C", app_clock },
 	{ "Snake",    "S", app_snake },
 	{ "Security", "L", app_security },
+	{ "Wi-Fi",    "W", app_wifi },
 	{ "Power",    "O", app_power },
 };
 
