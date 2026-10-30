@@ -27,8 +27,7 @@ MTK_CHARGER_INTERFACE := yes
 
 # LCM Configuration
 MTK_LCM_PHYSICAL_ROTATION = 0
-CUSTOM_LK_LCM = "hx83102d_hdp_dsi_vdo_truly_truly_zal3251"
-DEFINES += HX83102D_HDP_DSI_VDO_TRULY_TRULY_ZAL3251
+CUSTOM_LK_LCM = "hx83102d_hlt_psc_hdp_dsi_vdo_lcm"
 DEFINES += MTK_ROUND_CORNER_SUPPORT
 
 # Touch (Himax HX83102D on SPI2) support for the boot menu.
