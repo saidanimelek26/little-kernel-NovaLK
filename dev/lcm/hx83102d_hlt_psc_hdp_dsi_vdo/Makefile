@@ -16,3 +16,5 @@
 #
 
 obj-y += hx83102d_hlt_psc_hdp_dsi_vdo_lcm.o
+
+ccflags-$(CONFIG_MTK_LCM) += -I$(srctree)/drivers/misc/mediatek/lcm/inc
