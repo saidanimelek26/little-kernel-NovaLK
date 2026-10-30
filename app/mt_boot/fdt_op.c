@@ -28,7 +28,6 @@
 * OR REFUND ANY SOFTWARE LICENSE FEES OR SERVICE CHARGE PAID BY RECEIVER TO
 * MEDIATEK FOR SUCH MEDIATEK SOFTWARE AT ISSUE.
 */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -64,7 +63,6 @@
 #include <platform/verified_boot.h>
 #include <target.h>
 #include <recovery.h>
-
 #ifndef LK_MAIN_DTB_BUILT_IN
 void *g_fdt;
 #else
@@ -74,25 +72,19 @@ DTBO_SRC g_dtbo_load_src = DTBO_FROM_STANDALONE;
 extern u32 g_64bit_dtb_size;
 extern int g_is_64bit_kernel;
 extern char *p_AB_suffix;
-
-
 #define DTBO_PART_NEW_A_NAME "dtbo_a"
-
 static char *dtbo_one_part_name = "dtbo";
 #ifndef MTK_AB_OTA_UPDATER
 static char *dtbo_part_names[] = {"dtbo1", "dtbo2"};
 #endif
 static char *dtbo_fallback_part_name= "odmdtbo";
 static char dtbo_part_name_full[DTBO_PART_NAME_LEN + 1];
-
 extern int mboot_recovery_load_raw_part(char *part_name, unsigned long *addr, unsigned int size);
 extern int mboot_common_load_part(char *part_name, char *img_name, unsigned long addr);
-
 DTBO_SRC get_dtbo_src(void)
 {
 	return g_dtbo_load_src;
 }
-
 void setup_kernel_fdt(void *fdt)
 {
 	g_fdt = fdt;
@@ -108,7 +100,6 @@ char *get_dtbo_part_name(void)
 {
 	char *part_name = NULL;
 	static uint32_t dtbo_part_name_inited = 0;
-
 	if (!dtbo_part_name_inited) {
 #ifdef MTK_AB_OTA_UPDATER
 		part_name = dtbo_part_name_full;
@@ -125,7 +116,6 @@ char *get_dtbo_part_name(void)
 #else
 		int i;
 		int array_size = (int)(sizeof(dtbo_part_names) / sizeof(dtbo_part_names[0]));
-
 		/* check "dtbo" */
 		if (partition_exists(dtbo_one_part_name) == PART_OK) {
 			part_name = dtbo_one_part_name;
@@ -150,28 +140,22 @@ partname_selected:
 	}
 	return dtbo_part_name_full;
 }
-
 #if defined(MTK_DCONFIG_SUPPORT)
-
 #define DCONFIG_DTB_SIZE 131072
 #define DCONFIG_PART "boot_para"
 #define DCONFIG_DT_NAME "dconfig-dt"
-
 static u8 *dtb_dconfig_load(void)
 {
 	static bool dconfig_dtb_failed = false;
 	u8 *dconfig_dtb = NULL;
 	int len = 0;
-
 	if (dconfig_dtb_failed) {
 		pal_log_info("dconfig-dt already load failed, don't do it again\n");
 		return NULL;
 	}
-
 #ifdef MTK_SECURITY_SW_SUPPORT
 	unsigned int policy_entry_idx = 0;
 	unsigned int img_auth_required = 0;
-
 	policy_entry_idx = get_policy_entry_idx(DCONFIG_PART);
 	img_auth_required = get_vfy_policy(policy_entry_idx);
 	if (img_auth_required) {
@@ -210,21 +194,17 @@ static u8 *dtb_dconfig_load(void)
 #endif
 	return dconfig_dtb;
 }
-
 bool dtb_dconfig_overlay(void *target_fdt)
 {
 	int ret = 0;
-
 	if (target_fdt == NULL) {
 		pal_log_err("dconfig: passing target fdt with null\n");
 		return TRUE;
 	}
-
 	u8 *dconfig_dtb = dtb_dconfig_load();
 	if (dconfig_dtb == NULL) {
 		return TRUE;
 	}
-
 	struct fdt_header *dconfig_fdth = (struct fdt_header *) dconfig_dtb;
 	if (fdt_magic(dconfig_fdth) != FDT_MAGIC) {
 		pal_log_info("FDT magic number miss match : magic %x\n",
@@ -237,14 +217,12 @@ bool dtb_dconfig_overlay(void *target_fdt)
 		free(dconfig_dtb);
 		return TRUE;
 	}
-
 	struct fdt_header *blob = ufdt_install_blob(target_fdt, DTB_MAX_SIZE);
 	if (!blob) {
 		pal_log_err("ufdt_install_blob() failed\n");
 		free(dconfig_dtb);
 		return FALSE;
 	}
-
 	void *merged_fdt = ufdt_apply_overlay(blob, fdt_totalsize(blob), dconfig_fdth,
 					      fdt_totalsize(dconfig_fdth));
 	if (!merged_fdt) {
@@ -252,7 +230,6 @@ bool dtb_dconfig_overlay(void *target_fdt)
 		free(dconfig_dtb);
 		return FALSE;
 	}
-
 	ret = fdt_pack(merged_fdt);
 	if (ret) {
 		pal_log_err("dconfig: fdt_pack failed\n");
@@ -260,7 +237,6 @@ bool dtb_dconfig_overlay(void *target_fdt)
 		free(dconfig_dtb);
 		return FALSE;
 	}
-
 	int merged_size = fdt_totalsize(merged_fdt);
 	if (merged_size > DTB_MAX_SIZE) {
 		pal_log_err("dconfig: merged size %d > DTB_MAX_SIZE\n", merged_size);
@@ -268,33 +244,25 @@ bool dtb_dconfig_overlay(void *target_fdt)
 		free(dconfig_dtb);
 		return FALSE;
 	}
-
 	if (fdt_open_into(merged_fdt, target_fdt, DTB_MAX_SIZE) != 0) {
 		pal_log_err("dconfig: DTB replace failed\n");
 		free(merged_fdt);
 		free(dconfig_dtb);
 		return FALSE;
 	}
-
 	free(merged_fdt);
 	free(dconfig_dtb);
 	return TRUE;
 }
-
 #else
-
 bool dtb_dconfig_overlay(void *target_fdt)
 {
 	return TRUE;
 }
-
 #endif
-
 #ifndef LK_MAIN_DTB_BUILT_IN
 void *get_lk_overlayed_dtb(void){return g_fdt;}
-
 int32_t prepare_kernel_dtb(void){return 0;}
-
 /***********************************************************************
 * Done after bldr_load_dtb, overlay from associated dtbo partition
 ************************************************************************/
@@ -302,9 +270,7 @@ bool dtb_overlay(void *fdt, int size, uint64_t recovery_dtbo_offset)
 {
 	size_t overlay_len = 0;
 	char *part_name = NULL;
-
 	g_fdt = fdt;
-
 	if (fdt == NULL) {
 		pal_log_err("fdt is NULL\n");
 		return FALSE;
@@ -313,7 +279,6 @@ bool dtb_overlay(void *fdt, int size, uint64_t recovery_dtbo_offset)
 		pal_log_err("fdt size is zero\n");
 		return FALSE;
 	}
-
 #ifdef MTK_AB_OTA_UPDATER
 	part_name = get_dtbo_part_name();
 #else
@@ -326,27 +291,22 @@ bool dtb_overlay(void *fdt, int size, uint64_t recovery_dtbo_offset)
 		g_dtbo_load_src = DTBO_FROM_RECOVERY;
 	}
 #endif  // MTK_AB_OTA_UPDATER
-
 	// Note: A buffer is allocated in load_overlay_dtbo() to store the loaded
 	//       odm dtb.
 	char *overlay_buf = load_overlay_dtbo(part_name, &overlay_len, (uint64_t)recovery_dtbo_offset);
-
 	// check overlay dtbo
 	if (overlay_buf == NULL) {
 		pal_log_err("load overlay dtbo failed !\n");
 		return FALSE;
 	}
-
 	// check len of overlay dtbo
 	if (overlay_len == 0) {
 		pal_log_err("size of overlay dtbo is 0 !\n");
 		free(overlay_buf);
 		return FALSE;
 	}
-
 	struct fdt_header *fdth = (struct fdt_header *)g_fdt;
 	fdth->totalsize = cpu_to_fdt32(size);
-
 	int ret = fdt_open_into(g_fdt, g_fdt, size);
 	if (ret) {
 		pal_log_err("fdt_open_into failed \n");
@@ -359,7 +319,6 @@ bool dtb_overlay(void *fdt, int size, uint64_t recovery_dtbo_offset)
 		free(overlay_buf);
 		return FALSE;
 	}
-
 	char *base_buf = fdt;
 	size_t blob_len = size;
 	struct fdt_header *blob = ufdt_install_blob(base_buf, blob_len);
@@ -369,7 +328,6 @@ bool dtb_overlay(void *fdt, int size, uint64_t recovery_dtbo_offset)
 		return FALSE;
 	}
 	pal_log_info("blob_len: 0x%x, overlay_len: 0x%x\n", blob_len, overlay_len);
-
 	void *merged_fdt = NULL;
 	PROFILING_START("Overlay");
 	// Note: A buffer is allocated in ufdt_apply_overlay() to store the merge
@@ -382,7 +340,6 @@ bool dtb_overlay(void *fdt, int size, uint64_t recovery_dtbo_offset)
 		return FALSE;
 	}
 	PROFILING_END();
-
 	// Compact the merged device tree so that the size of the device tree can
 	// be known.
 	ret = fdt_pack(merged_fdt);
@@ -392,8 +349,6 @@ bool dtb_overlay(void *fdt, int size, uint64_t recovery_dtbo_offset)
 		free(overlay_buf);
 		return FALSE;
 	}
-
-
 	int merged_size = fdt_totalsize(merged_fdt);
 	pal_log_info("fdt merged_size: %d\n", merged_size);
 	if (merged_size > DTB_MAX_SIZE) {
@@ -402,23 +357,17 @@ bool dtb_overlay(void *fdt, int size, uint64_t recovery_dtbo_offset)
 		free(overlay_buf);
 		return FALSE;
 	}
-
 	// The memory pointed to by "g_fdt" is the location that the Linux kernel
 	// expects to find the device tree, and it is at least a few mega-bytes
 	// free. The merged device tree is therefore copied to that space.
 	memcpy(g_fdt, merged_fdt, merged_size);
-
 	// Make the totalsize of the device tree larger so that properties can
 	// be inserted into the device tree.
 	((struct fdt_header *)g_fdt)->totalsize = cpu_to_fdt32(DTB_MAX_SIZE);
-
 	free(merged_fdt);
 	free(overlay_buf);
-
 	return TRUE;
 }
-
-
 /*******************************************************************
 * mmap fdt buffer and sanity check it before doing any operation
 ********************************************************************/
@@ -439,7 +388,6 @@ bool setup_fdt(void *fdt, int size)
 	if (ret) return FALSE;
 	return TRUE;
 }
-
 /**************************************************************************
 * Load dtb from boot/recovery, does MMU map and relocate
 ***************************************************************************/
@@ -453,13 +401,11 @@ int bldr_load_dtb_from_boot(char *part_name, u32 *dtb_final_addr, uint64_t *reco
 	u32 offset = 0;
 	unsigned char *magic;
 	struct bootimg_hdr *p_boot_hdr;
-
 	ptr = malloc(DTB_MAX_SIZE);
 	if (ptr == NULL) {
 		pal_log_err("dtb malloc failed!\n");
 		return -1;
 	}
-
 	//load boot hdr
 	ret = mboot_recovery_load_raw_part(part_name, (unsigned long *)ptr,
 					sizeof(struct bootimg_hdr) + 0x800);
@@ -468,16 +414,13 @@ int bldr_load_dtb_from_boot(char *part_name, u32 *dtb_final_addr, uint64_t *reco
 			part_name, sizeof(struct bootimg_hdr) + 0x800, ret);
 		goto _end;
 	}
-
 	if (0 == bootimg_hdr_valid((uint8_t *)ptr)) {
 		pal_log_err("bootimg_hdr_valid failed\n");
 		ret = -1;
 		goto _end;
 	}
-
 	p_boot_hdr = (void *)ptr;
 	*dtb_final_addr = p_boot_hdr->tags_addr;
-
 	/* Under recovery, get dtbo info from bootimg hdr version 1 */
 	if (!strcmp(part_name, "recovery")) {
 		if (p_boot_hdr->header_version >= BOOT_HEADER_VERSION_ONE) {
@@ -489,13 +432,10 @@ int bldr_load_dtb_from_boot(char *part_name, u32 *dtb_final_addr, uint64_t *reco
 				pal_log_err("Warning: check recovery dtbo location!\n");
 		}
 	}
-
 	/* Claim the DT/kernel/ramdisk addr from mblock */
 	mboot_allocate_bootimg_from_mblock(p_boot_hdr);
-
 	/* decide whether this is 64bit kernel from cmdline */
 	platform_parse_bootopt(p_boot_hdr->cmdline);
-
 	if (p_boot_hdr->header_version >= BOOT_HEADER_VERSION_TWO) {
 		dtb_size = p_boot_hdr->dtb_size;
 		tmp = p_boot_hdr->page_sz
@@ -503,20 +443,17 @@ int bldr_load_dtb_from_boot(char *part_name, u32 *dtb_final_addr, uint64_t *reco
 			+ ROUNDUP(p_boot_hdr->ramdisk_sz, p_boot_hdr->page_sz)
 			+ ROUNDUP(p_boot_hdr->second_sz, p_boot_hdr->page_sz)
 			+ ROUNDUP(p_boot_hdr->recovery_dtbo_size, p_boot_hdr->page_sz);
-
 		if (dtb_size == 0) {
 			pal_log_err("can't find v2 dtb\n");
 			ret = -1;
 			goto _end;
 		}
-
 		ret = partition_read(part_name, (off_t)tmp, (u8 *)ptr,
 			(size_t)ROUNDUP(dtb_size, p_boot_hdr->page_sz));
 		if (ret < 0) {
 			pal_log_err("partition_read for v2 dtb failed, ret: 0x%x\n", ret);
 			goto _end;
 		}
-
 		/* Check dtb format comes with mkdtimg (table_header+table_entry+fdt_body) */
 		if (DT_TABLE_MAGIC == fdt_magic(ptr))
 		{
@@ -524,7 +461,6 @@ int bldr_load_dtb_from_boot(char *part_name, u32 *dtb_final_addr, uint64_t *reco
 			uint32_t dt_entry_count = fdt32_to_cpu(hdr->dt_entry_count);
 			dtb_addr = (u32)ptr + sizeof(struct dt_table_header)
 				+ dt_entry_count * sizeof(struct dt_table_entry);
-
 			pal_log_err("find v2 dtb with mkdtimg format, dtb file offset: 0x%x\n", tmp);
 		}
 		else if (FDT_MAGIC == fdt_magic(ptr))
@@ -532,10 +468,8 @@ int bldr_load_dtb_from_boot(char *part_name, u32 *dtb_final_addr, uint64_t *reco
 			dtb_addr = (u32)ptr;
 			pal_log_err("find v2 dtb with fdt format only, dtb file offset: 0x%x\n", tmp);
 		}
-
 		goto _dt_relocate;
 	}
-
 	if (!g_is_64bit_kernel) {
 		//Offset into zImage    Value   Description
 		//0x24  0x016F2818  Magic number used to identify this is an ARM Linux zImage
@@ -593,14 +527,12 @@ int bldr_load_dtb_from_boot(char *part_name, u32 *dtb_final_addr, uint64_t *reco
 		pal_log_err("Kernel(%d) zimage_size:0x%x,dtb_addr:0x%x(dtb_size:0x%x)\n",
 			g_is_64bit_kernel, zimage_size, dtb_addr, dtb_size);
 	}
-
 _dt_relocate:
 	if (dtb_size > DTB_MAX_SIZE) {
 		pal_log_err("dtb_size too large: 0x%x\n", dtb_size);
 		ret = -1;
 		goto _end;
 	}
-
 #ifdef MTK_3LEVEL_PAGETABLE
 	arch_mmu_map((uint64_t)ROUNDDOWN(*dtb_final_addr, PAGE_SIZE),
 		(uint32_t)ROUNDDOWN(*dtb_final_addr, PAGE_SIZE),
@@ -610,12 +542,10 @@ _dt_relocate:
 	pal_log_err("Copy DTB from 0x%x to 0x%x(size: 0x%x)\n", dtb_addr,
 		*dtb_final_addr, dtb_size);
 	memcpy((void *)*dtb_final_addr, (void *)dtb_addr, dtb_size);
-
 _end:
 	free(ptr);
 	return ret;
 }
-
 /**************************************************************************
 * Please refer to bootimg.h for boot image header structure.
 * bootimg header size is 0x800, the kernel img text is next to the header
@@ -626,19 +556,16 @@ int bldr_load_dtb(char *boot_load_partition)
 	u32 dtb_final_addr;
 	char part_name[16];
 	uint64_t recovery_dtbo_offset = 0;
-
 #ifdef MTK_AB_OTA_UPDATER
 	/* no more recovery partition in A/B system update, instead choose boot_a or boot_b */
 	snprintf(part_name, sizeof(part_name), "boot%s", p_AB_suffix);
 #else
 	snprintf(part_name, sizeof(part_name), "%s", boot_load_partition);
 #endif
-
 	/* load dtb from boot */
 	ret = bldr_load_dtb_from_boot(part_name, &dtb_final_addr, &recovery_dtbo_offset);
 	if (ret < 0)
 		return ret;
-
 	// Place setup_fdt() after bldr_load_dtb() because it sets "fdt_header->totalsize".
 	ret = setup_fdt((void *)dtb_final_addr, DTB_MAX_SIZE);
 	pal_log_err("[LK] fdt setup addr:0x%x status:%d!!!\n", dtb_final_addr, ret);
@@ -646,7 +573,6 @@ int bldr_load_dtb(char *boot_load_partition)
 		pal_log_err("setup_fdt fail, ret: 0x%x!\n", ret);
 		ret = -1;
 	}
-
 	/* load odmdtbo and overlay */
 	ret = dtb_overlay(g_fdt, DTB_MAX_SIZE, (uint64_t)recovery_dtbo_offset);
 	if (ret == TRUE) {
@@ -657,7 +583,6 @@ int bldr_load_dtb(char *boot_load_partition)
 	}
 	/* command line buffer init */
 	bootargs_init(g_fdt);
-
 	return ret;
 }
 #else /* LK_MAIN_DTB_BUILT_IN */
@@ -687,7 +612,6 @@ int32_t load_dtbo_buffer(void **dtbo_ptr, uint32_t *dtbo_size)
 	uint32_t dtbo_entry_idx;
 	uint32_t _dtbo_size;
 	char *dtbo_from_part_name = get_dtbo_part_name();
-
 	dtbo_total_buffer = target_get_scratch_address();
 	if (dtbo_total_buffer == NULL)
 		panic("scratch address is NULL!\n");
@@ -697,7 +621,6 @@ int32_t load_dtbo_buffer(void **dtbo_ptr, uint32_t *dtbo_size)
 	unsigned int policy_entry_idx = 0;
 	unsigned int img_auth_required = 0;
 	char *img_name = "dtbo";
-
 	policy_entry_idx = get_policy_entry_idx(dtbo_from_part_name);
 	img_auth_required = get_vfy_policy(policy_entry_idx);
 	/* verify cert chain of boot img */
@@ -719,7 +642,6 @@ int32_t load_dtbo_buffer(void **dtbo_ptr, uint32_t *dtbo_size)
 #endif
 	}
 #endif
-
 	dt_tbl_hdr_buffer = (struct dt_table_header *)malloc(pre_read_dt_tbl_hdr_size);
 	if (dt_tbl_hdr_buffer == NULL) {
 		ret = -ENOMEM;
@@ -761,7 +683,6 @@ int32_t load_dtbo_buffer(void **dtbo_ptr, uint32_t *dtbo_size)
 		dprintf(CRITICAL, "[SBC] %s vfy pass(%d ms)\n", img_name, (unsigned int)get_timer(vfy_time));
 	}
 #endif
-
 	/* select dtbo via HW index */
 	ret = parse_dtbo_tbl((struct dt_table_header *)dtbo_total_buffer, (uint32_t)get_odm_mdtbo_index(),
 					&dtbo_entry_idx,
@@ -774,7 +695,6 @@ int32_t load_dtbo_buffer(void **dtbo_ptr, uint32_t *dtbo_size)
 		goto end;
 	}
 	*dtbo_size = _dtbo_size;
-
 	dtbo_buffer = malloc(_dtbo_size);
 	if (dtbo_buffer == NULL){
 		ret = -ENOMEM;
@@ -803,7 +723,6 @@ end:
 	}
 	return ret;
 }
-
 /*
  * Realme C21 / RMX3201 (project 20701 / 0x50DD).
  *
@@ -828,15 +747,12 @@ end:
  */
 #define C21_OPLUS_MODEM_ID	8
 #define C21_OPLUS_OPERATOR_ID	184
-
 static void c21_oplus_project_fixup(void *fdt)
 {
 	int node;
 	int ret;
-
 	if (fdt == NULL)
 		return;
-
 	node = fdt_path_offset(fdt, "/oplus_project");
 	if (node < 0)
 		node = fdt_node_offset_by_compatible(fdt, -1,
@@ -845,7 +761,6 @@ static void c21_oplus_project_fixup(void *fdt)
 		pal_log_err("[C21] oplus_project node not found: %d\n", node);
 		return;
 	}
-
 	ret = fdt_setprop_u32(fdt, node, "nProject", C21_OPLUS_PROJECT_ID);
 	if (ret) {
 		pal_log_err("[C21] set nProject failed: %d\n", ret);
@@ -866,12 +781,10 @@ static void c21_oplus_project_fixup(void *fdt)
 	ret = fdt_setprop_u32(fdt, node, "isConfidential", 0);
 	if (ret)
 		pal_log_err("[C21] set isConfidential failed: %d\n", ret);
-
 	pal_log_err("[C21] oplus_project: nProject=0x%X (20701), nModem=%d, nOperator=%d, nPCBVersion=0\n",
 		    C21_OPLUS_PROJECT_ID, C21_OPLUS_MODEM_ID,
 		    C21_OPLUS_OPERATOR_ID);
 }
-
 /*
  * Realme C21 / RMX3201 (20701) camera workaround.
  *
@@ -887,17 +800,14 @@ static void c21_oplus_project_fixup(void *fdt)
  * to disable the unused main2 camera in the camera HAL config.
  */
 #define C21_CAM4_ENABLE_SENSOR	"pascald_truly_main_ov13b10"
-
 static void c21_camera_fixup(void *fdt)
 {
 	int node;
 	int ret;
 	int len = 0;
 	const void *prop;
-
 	if (fdt == NULL)
 		return;
-
 	node = fdt_path_offset(fdt, "/kd_camera_hw1@1a040000");
 	if (node < 0)
 		node = fdt_node_offset_by_compatible(fdt, -1,
@@ -906,13 +816,11 @@ static void c21_camera_fixup(void *fdt)
 		pal_log_err("[C21] kd_camera_hw1 node not found: %d\n", node);
 		return;
 	}
-
 	prop = fdt_getprop(fdt, node, "cam4_enable_sensor", &len);
 	if (prop != NULL && len > 0) {
 		pal_log_err("[C21] cam4_enable_sensor already present, skip\n");
 		return;
 	}
-
 	ret = fdt_setprop_string(fdt, node, "cam4_enable_sensor",
 				 C21_CAM4_ENABLE_SENSOR);
 	if (ret)
@@ -921,7 +829,6 @@ static void c21_camera_fixup(void *fdt)
 		pal_log_err("[C21] cam4_enable_sensor=%s\n",
 			    C21_CAM4_ENABLE_SENSOR);
 }
-
 /*
  * Realme C21 / RMX3201 (20701) keypad fixup (kernel DTB).
  *
@@ -947,16 +854,13 @@ static void c21_kpd_fixup(void *fdt)
 {
 	int node;
 	int ret;
-
 	if (fdt == NULL)
 		return;
-
 	node = fdt_path_offset(fdt, "/kp@10010000");
 	if (node < 0) {
 		pal_log_err("[C21] keypad node not found: %d\n", node);
 		return;
 	}
-
 	ret = fdt_setprop_u32(fdt, node, "mediatek,kpd-hw-pwrkey", 8);
 	if (ret)
 		pal_log_err("[C21] set kpd-hw-pwrkey failed: %d\n", ret);
@@ -969,10 +873,8 @@ static void c21_kpd_fixup(void *fdt)
 	ret = fdt_setprop_u32(fdt, node, "mediatek,kpd-hw-factory-key", 0);
 	if (ret)
 		pal_log_err("[C21] set kpd-hw-factory-key failed: %d\n", ret);
-
 	pal_log_err("[C21] kpd: pwrkey=8, rstkey=17, recovery=1, factory=0\n");
 }
-
 int32_t prepare_kernel_dtb(void)
 {
 	int ret_overlay;
@@ -983,7 +885,6 @@ int32_t prepare_kernel_dtb(void)
 	uint32_t dtbo_size = get_dtbo_img_size();
 	uint32_t main_dtb_size = get_main_dtb_size();
 	uint32_t overlayed_dtb_size = 0;
-
 	/*
 	 * dtbo address may not native pointer alignment,
 	 * which will cause unalignment fault.
@@ -1018,14 +919,12 @@ int32_t prepare_kernel_dtb(void)
 		}
 		memcpy(main_dtb, (void *)get_main_dtb_load_addr(), main_dtb_size);
 	}
-
 	/* Force DTBO Merge to ensure Touch node is active (entry 1) */
 	ret_overlay = dtb_overlay(main_dtb ? main_dtb : (void *)get_main_dtb_load_addr(),
 				main_dtb_size,
 				dtbo ? dtbo : (void *)get_dtbo_load_addr(),
 				dtbo_size,
 				&overlayed_dtb, DTB_MAX_SIZE);
-
 	if (ret_overlay == 0 && overlayed_dtb != NULL) {
 		overlayed_dtb_size = fdt_totalsize(overlayed_dtb);
 		memcpy(get_kernel_fdt(), overlayed_dtb, overlayed_dtb_size);
@@ -1034,27 +933,25 @@ int32_t prepare_kernel_dtb(void)
 		pal_log_err("CRITICAL: dtb_overlay failed! Touch will not work\n");
 		ret = -2;
 	}
-
-	/* Hardcoded Bootargs Injection: Ensuring LCM is passed to kernel */
+	/* Hardcoded Bootargs Injection */
 	int chosen_node = fdt_path_offset(get_kernel_fdt(), "/chosen");
 	if (chosen_node >= 0) {
-		const char *my_custom_cmdline = 
+		const char *my_custom_cmdline =
 			"console=tty0 console=ttyS0,921600n1 vmalloc=400M slub_debug=OFZPU page_owner=on swiotlb=noforce "
 			"androidboot.hardware=mt6765 maxcpus=8 loop.max_part=7 firmware_class.path=/vendor/firmware "
-			"has_battery_removed=1 androidboot.boot_devices=bootdevice,soc/11230000.mmc,11230000.mmc "
+			"has_battery_removed=0 androidboot.boot_devices=bootdevice,soc/11230000.mmc,11230000.mmc "
 			"ramoops.mem_address=0x47c90000 ramoops.mem_size=0xe0000 ramoops.pmsg_size=0x10000 ramoops.console_size=0x40000 "
 			"bootopt=64S3,32N2,64N2 buildvariant=user root=/dev/ram androidboot.verifiedbootstate=orange "
-			"androidboot.vbmeta.device_state=unlocked androidboot.prjname=20701 androidboot.atm=disabled "
-			"androidboot.meta_log_disable=0 mtk_printk_ctrl.disable_uart=1 androidboot.serialno=JN9PLJSGOFQKIVLF "
-			"androidboot.bootreason=reboot_longkey gpt=1 usb2jtag_mode=0 androidboot.dtb_idx=0 androidboot.dtbo_idx=1 "
-			"lcm=1-hx83102d_truly_truly--1-fps=6052";
-
+			"oppo_boot_mode=0 simcardnum.doublesim=1 lcm=1-hx83102d_hlt_psc_hdp_dsi_vdo_lcm--1-fps=6032 "
+			"is_lm3697=1 androidboot.atm=disabled androidboot.meta_log_disable=0 androidboot.prjname=206A1 "
+			"mtk_printk_ctrl.disable_uart=1 lcdgateic=SM5109 himax_bc=0x04 androidboot.serialno=xxx "
+			"ogauge_auth=IKLAO@@FG@ACLBKJDGBLOHOEJIFLBODOMH@EJBOFGMLA@IOKLIHHMFDJBBIDBMJKHAO@CJAMMLM@HFOM "
+			"androidboot.bootreason=reboot gpt=1 usb2jtag_mode=0 androidboot.dtb_idx=0 androidboot.dtbo_idx=0";
 		fdt_setprop_string(get_kernel_fdt(), chosen_node, "bootargs", my_custom_cmdline);
 		pal_log_info("[FIX] Hardcoded bootargs injected successfully!\n");
 	} else {
 		pal_log_err("CRITICAL: /chosen node not found, cannot inject bootargs!\n");
 	}
-
 end:
 	if (dtbo)
 		free(dtbo);
@@ -1062,7 +959,6 @@ end:
 		free(main_dtb);
 	if (overlayed_dtb)
 		free(overlayed_dtb);
-
 	if (ret == 0) {
 		if (dtb_dconfig_overlay(get_kernel_fdt()) == FALSE)
 			pal_log_err("dconfig DT overlay failed, system may not bootable!\n");
@@ -1072,8 +968,6 @@ end:
 	}
 	return ret;
 }
-
-
 int32_t dtb_overlay(void *main_dtb_addr, uint32_t main_dtb_size,
 					void *dtbo_addr, uint32_t dtbo_size,
 					void **merged_dtb, uint32_t merged_max_size)
@@ -1081,7 +975,6 @@ int32_t dtb_overlay(void *main_dtb_addr, uint32_t main_dtb_size,
 	int ret;
 	struct fdt_header *blob;
 	struct fdt_header *merged_fdt;
-
 	if (!main_dtb_addr ||
 		!main_dtb_size ||
 		!dtbo_addr ||
@@ -1096,7 +989,6 @@ int32_t dtb_overlay(void *main_dtb_addr, uint32_t main_dtb_size,
 			merged_max_size, main_dtb_size + dtbo_size);
 		return -EINVAL;
 	}
-
 	ret = fdt_open_into(main_dtb_addr, main_dtb_addr, main_dtb_size);
 	if (ret < 0) {
 		pal_log_err("fdt_open_into failed \n");
@@ -1126,7 +1018,6 @@ int32_t dtb_overlay(void *main_dtb_addr, uint32_t main_dtb_size,
 	*merged_dtb = (void *)merged_fdt;
 	return 0;
 }
-
 /**************************************************************************************
 * Main device tree loading function, considering loading accordingly from different boot mode
 ***************************************************************************************/
@@ -1134,9 +1025,7 @@ void load_device_tree(void)
 {
 #ifndef LK_MAIN_DTB_BUILT_IN
 	PROFILING_START("early load dtb");
-
 	char *part_name = "boot";
-
 	/* If RECOVERY_as_BOOT is enabled, there is no recovery partition.  */
 #if !defined(NO_BOOT_MODE_SEL) && !defined(RECOVERY_AS_BOOT)
 	if (Check_RTC_Recovery_Mode() || recovery_check_command_trigger())
@@ -1144,18 +1033,15 @@ void load_device_tree(void)
 	else
 		part_name = "boot";
 #endif
-
 #if defined(CFG_DTB_EARLY_LOADER_SUPPORT)
 	if (bldr_load_dtb(part_name) < 0)
 		dprintf(CRITICAL, "Error: %s failed\n", __func__);
 #endif
-
 	PROFILING_END();
 #else /* LK_MAIN_DTB_BUILT_IN */
 	lk_dtb_init();
 #endif
 }
-
 int32_t parse_dtbo_tbl(struct dt_table_header *dt_tbl_hdr_buffer,
 		uint32_t hw_board_idx, uint32_t *dtbo_entry_idx_out,
 		uint32_t *dtbo_size, uint32_t *dtbo_offset)
@@ -1163,7 +1049,6 @@ int32_t parse_dtbo_tbl(struct dt_table_header *dt_tbl_hdr_buffer,
 	struct dt_table_entry *dt_entry_head;
 	uint32_t dt_entry_cnt;
 	uint32_t dtbo_entry_idx;
-
 	assert(dt_tbl_hdr_buffer);
 	/* sanity check */
 	if (fdt32_to_cpu(dt_tbl_hdr_buffer->magic) != DT_TABLE_MAGIC) {
@@ -1187,7 +1072,6 @@ int32_t parse_dtbo_tbl(struct dt_table_header *dt_tbl_hdr_buffer,
 		}
 	}
 	/* traverse end */
-
 	if (dtbo_entry_idx >= dt_entry_cnt) {
 		dprintf(CRITICAL, "Error: dtbo_entry_idx %d >= num_of_dtbo %d.\n",
 			dtbo_entry_idx, dt_entry_cnt);
