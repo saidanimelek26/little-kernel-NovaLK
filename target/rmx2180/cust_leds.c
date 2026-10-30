@@ -2,8 +2,8 @@
 #include <cust_leds.h>
 #include <platform/mt_pwm.h>
 #include <platform/mt_leds.h>
+#include <platform/primary_display.h>
 
-extern int disp_bls_set_backlight(unsigned int level);
 enum led_brightness backlight_default_level = LED_FULL;
 
 // Only support 64 levels of backlight (when lcd-backlight = MT65XX_LED_MODE_PWM)
@@ -26,7 +26,7 @@ static struct cust_mt65xx_led cust_led_list[MT65XX_LED_TYPE_TOTAL] = {
 	{"jogball-backlight", MT65XX_LED_MODE_NONE, -1,{0,0,0,0,0}},
 	{"keyboard-backlight",MT65XX_LED_MODE_NONE, -1,{0,0,0,0,0}},
 	{"button-backlight",  MT65XX_LED_MODE_NONE, -1,{0,0,0,0,0}},
-	{"lcd-backlight",     MT65XX_LED_MODE_CUST_BLS_PWM, (int)disp_bls_set_backlight,{0}},
+	{"lcd-backlight",     MT65XX_LED_MODE_CUST_LCM, (int)primary_display_setbacklight,{0}},
 };
 
 enum led_brightness get_cust_led_default_level(void)
