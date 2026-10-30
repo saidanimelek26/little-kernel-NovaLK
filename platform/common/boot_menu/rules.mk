@@ -10,4 +10,5 @@ OBJS += \
 	$(LOCAL_DIR)/fastboot_ui.o \
 	$(LOCAL_DIR)/snake.o \
 	$(LOCAL_DIR)/lock_store.o \
-	$(LOCAL_DIR)/lock_ui.o
+	$(LOCAL_DIR)/lock_ui.o \
+	$(LOCAL_DIR)/novaos.o

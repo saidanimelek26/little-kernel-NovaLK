@@ -14,7 +14,7 @@
  * destroy the previous good record.
  *
  * Before the first write the code proves that the area is really free: the
- * image header must be valid and the last 16 KiB of the partition (outside
+ * image header must be valid and the last 8 KiB of the partition (outside
  * the record slots) must be blank.  If that cannot be shown the store is
  * reported as not writable and nothing is ever written.
  */

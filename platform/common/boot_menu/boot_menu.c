@@ -122,11 +122,12 @@ static int g_card_x, g_card_w, g_card_h, g_card_gap, g_cards_top;
 static int g_title_y, g_subtitle_y, g_device_y, g_credit_y, g_accent_y;
 static int g_footer_y;
 /* Two small buttons under the footer hints: PLAY SNAKE and SECURITY. */
-#define MENU_BTN_W	220
+#define MENU_BTN_W	200
 #define MENU_BTN_H	56
-#define MENU_BTN_GAP	20
+#define MENU_BTN_GAP	16
 #define MENU_BTN_DY	80	/* below the first footer line */
-enum { MENU_BTN_SNAKE = 0, MENU_BTN_SECURITY = 1, MENU_BTN_COUNT = 2 };
+enum { MENU_BTN_NOVAOS = 0, MENU_BTN_SNAKE = 1, MENU_BTN_SECURITY = 2,
+       MENU_BTN_COUNT = 3 };
 #ifdef MTK_TPD_SUPPORT
 static int g_touch_ok;
 #endif
@@ -265,7 +266,8 @@ static void novalk_paint_cards(int select)
 
 static int novalk_menu_btn_x(int idx)
 {
-	return g_w / 2 - MENU_BTN_W - MENU_BTN_GAP / 2 +
+	return g_w / 2 - (MENU_BTN_COUNT * MENU_BTN_W +
+			  (MENU_BTN_COUNT - 1) * MENU_BTN_GAP) / 2 +
 	       idx * (MENU_BTN_W + MENU_BTN_GAP);
 }
 
@@ -299,7 +301,8 @@ static void novalk_paint_footer(void)
 		novalk_draw_text_center(g_w / 2, g_footer_y + 40, HINT_SCALE,
 					NOVA_TEXT_DIM, NOVA_BG, tp);
 		/* Small buttons; only useful when touch works. */
-		novalk_paint_menu_button(MENU_BTN_SNAKE, "PLAY SNAKE");
+		novalk_paint_menu_button(MENU_BTN_NOVAOS, "NOVA OS");
+		novalk_paint_menu_button(MENU_BTN_SNAKE, "SNAKE");
 		novalk_paint_menu_button(MENU_BTN_SECURITY, "SECURITY");
 	} else {
 		novalk_draw_text_center(g_w / 2, g_footer_y + 40, HINT_SCALE,
@@ -502,7 +505,9 @@ void boot_menu_select(void)
 
 					btn = novalk_hit_menu_button(sx, sy);
 					if (btn >= 0) {
-						if (btn == MENU_BTN_SNAKE)
+						if (btn == MENU_BTN_NOVAOS)
+							novalk_os_run(1);
+						else if (btn == MENU_BTN_SNAKE)
 							novalk_snake_play(1);
 						else
 							novalk_lock_settings(1);

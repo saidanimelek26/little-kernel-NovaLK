@@ -69,6 +69,13 @@ void novalk_snake_play(int touch_ok);
  * tpd_read() may be used; without it the hardware keys are used.
  */
 void novalk_lock_gate(int touch_ok);
+
+/*
+ * NovaOS (platform/common/boot_menu/novaos.c): the small touch environment
+ * with a home screen and apps (Info, Storage, Calc, Paint, Clock, Snake,
+ * Security, Power).  Returns when the user leaves it.
+ */
+void novalk_os_run(int touch_ok);
 void novalk_lock_settings(int touch_ok);
 
 void novalk_fastboot_ui_show(void);

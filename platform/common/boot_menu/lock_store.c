@@ -18,7 +18,7 @@ extern int partition_get_index_by_name(const char *part_name);
 
 #define SECTOR			512
 #define SLOT_AREA		(2 * SECTOR)
-#define BLANK_GUARD		16384	/* must be blank in front of the slots */
+#define BLANK_GUARD		8192	/* must be blank in front of the slots */
 #define MIN_PART_SIZE		(256 * 1024)
 #define MTK_IMG_MAGIC		0x58881688
 
