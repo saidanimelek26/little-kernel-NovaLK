@@ -37,7 +37,7 @@
 #define RGU_BASE		0x10007000
 #define PINMUX_BASE		0x10005000
 #define CONN_MCU_BASE		0x18002000
-#define CONN_TOP_MISC_OFF_BASE	0x18070000
+#define CONN_TOP_MISC_OFF_BASE	0x180b1000	/* DT: CONN_TOP_MISC_OFF_BASE */
 
 #define SPM_POWERON_CONFIG_EN	(SPM_BASE + 0x000)
 #define SPM_PWR_STATUS		(SPM_BASE + 0x180)
@@ -70,7 +70,7 @@
 #define RST_KEY			(0x88u << 24)
 
 #define CONN_IP_VER		(CONN_TOP_MISC_OFF_BASE + 0x10)
-#define CONN_IP_VER_ALT		(CONN_TOP_MISC_OFF_BASE + 0x08)
+#define CONN_CONF_ID		(CONN_TOP_MISC_OFF_BASE + 0x1c)
 #define CONN_HW_ID		(CONN_MCU_BASE + 0x000)
 #define CONN_FW_ID		(CONN_MCU_BASE + 0x004)
 #define CONN_VER_ID_0x600	(CONN_MCU_BASE + 0x600)
@@ -194,7 +194,7 @@ static void if_pinmux(int on)
 int novalk_consys_probe(char (*lines)[LINE_MAX_CH], int max, int *count)
 {
 	struct report r;
-	u32 ip = 0, ip_alt = 0;
+	u32 ip = 0;
 	int alive = 0;
 	int i;
 
@@ -231,12 +231,12 @@ int novalk_consys_probe(char (*lines)[LINE_MAX_CH], int max, int *count)
 			}
 			mdelay(20);
 		}
-		ip_alt = RD(CONN_IP_VER_ALT);
 
 		say(&r, "IP ver [+0x10]=%08x (want %08x)", ip, EXPECT_IP_VER);
-		say(&r, "IP ver [+0x08]=%08x", ip_alt);
-		say(&r, "HW id=%08x  FW id=%08x", RD(CONN_HW_ID), RD(CONN_FW_ID));
-		say(&r, "mcu[+0x600]=%08x (want 1d1e)", RD(CONN_VER_ID_0x600));
+		say(&r, "conf id [+0x1c]=%08x", RD(CONN_CONF_ID));
+		say(&r, "HW id=%04x  FW id=%04x", RD(CONN_HW_ID) & 0xffff,
+		    RD(CONN_FW_ID) & 0xffff);
+		say(&r, "mcu[+0x600]=%08x", RD(CONN_VER_ID_0x600));
 
 		/* 6. put everything back */
 		conn_bus_prot_set(&r);
