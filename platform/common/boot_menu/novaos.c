@@ -1051,18 +1051,20 @@ static void app_power(void)
 
 static void app_wifi(void)
 {
-	static char lines[16][46];
-	struct rect btn;
+	static char lines[20][46];
+	struct rect btn1, btn2;
+	const char *title = NULL;
 	int count = 0;
 	int ran = 0;
-	int alive = 0;
+	int ok = 0;
 	int x = 0, y = 0, touching;
 	int i;
 
-	btn.w = 520;
-	btn.h = 110;
-	btn.x = (W - 520) / 2;
-	btn.y = H - 330;
+	btn1.w = btn2.w = 330;
+	btn1.h = btn2.h = 110;
+	btn1.y = btn2.y = H - 300;
+	btn1.x = W / 2 - 330 - 15;
+	btn2.x = W / 2 + 15;
 
 	app_begin("WI-FI");
 
@@ -1072,42 +1074,61 @@ static void app_wifi(void)
 		if (!ran) {
 			text_center(W / 2, 170, 3, C_ERROR, C_BG, "EXPERIMENTAL");
 			text_center(W / 2, 250, 2, C_TEXT, C_BG,
-				    "Stage 1 of 7: power on the");
-			text_center(W / 2, 290, 2, C_TEXT, C_BG,
-				    "connectivity block and read");
-			text_center(W / 2, 330, 2, C_TEXT, C_BG,
-				    "its ID, then power it off.");
-			text_center(W / 2, 410, 2, C_DIM, C_BG,
+				    "STAGE 1  power the block, read ID");
+			text_center(W / 2, 300, 2, C_TEXT, C_BG,
+				    "STAGE 2  load patches, start MCU");
+			text_center(W / 2, 380, 2, C_DIM, C_BG,
 				    "Browsing is NOT available yet.");
-			text_center(W / 2, 480, 2, C_ERROR, C_BG,
+			text_center(W / 2, 450, 2, C_ERROR, C_BG,
 				    "If the screen freezes, hold");
-			text_center(W / 2, 520, 2, C_ERROR, C_BG,
+			text_center(W / 2, 490, 2, C_ERROR, C_BG,
 				    "POWER for 10 s to reboot.");
 		} else {
-			text_center(W / 2, 140, 3, alive ? C_OK : C_ERROR, C_BG,
-				    alive ? "CONNSYS ALIVE" : "NO VALID ID");
+			text_center(W / 2, 140, 3, ok ? C_OK : C_ERROR, C_BG,
+				    title);
 			for (i = 0; i < count; i++)
-				video_draw_text(24, 220 + i * 40, 2,
-						C_TEXT, C_BG, lines[i]);
+				video_draw_text(24, 200 + i * 38, 2, C_TEXT,
+						C_BG, lines[i]);
 		}
 
-		draw_button(&btn, ran ? "RUN AGAIN" : "RUN STAGE 1", 3, 0, 0);
+		draw_button(&btn1, "STAGE 1", 3, 0, 0);
+		draw_button(&btn2, "STAGE 2", 3, 0, 0);
 		video_refresh();
 
 		for (;;) {
 			int ev = in_poll(&x, &y, &touching);
+			int run = 0;
 
 			if (app_back(ev, x, y))
 				return;
 
-			if ((ev & EV_TAP) && inside(&btn, x, y)) {
-				tap_feedback(&btn, ran ? "RUN AGAIN" : "RUN STAGE 1", 3);
-				text_center(W / 2, H - 440, 2, C_ACCENT, C_BG,
+			if (ev & EV_TAP) {
+				if (inside(&btn1, x, y)) {
+					tap_feedback(&btn1, "STAGE 1", 3);
+					run = 1;
+				} else if (inside(&btn2, x, y)) {
+					tap_feedback(&btn2, "STAGE 2", 3);
+					run = 2;
+				}
+			}
+
+			if (run) {
+				text_center(W / 2, H - 400, 2, C_ACCENT, C_BG,
 					    "RUNNING...");
 				video_refresh();
 
 				count = 0;
-				alive = novalk_consys_probe(lines, 16, &count);
+				if (run == 1) {
+					ok = novalk_consys_probe(lines, 20,
+								 &count);
+					title = ok ? "CONNSYS ALIVE" :
+						     "NO VALID ID";
+				} else {
+					ok = novalk_consys_stage2(lines, 20,
+								  &count);
+					title = ok ? "MCU RUNNING" :
+						     "MCU NOT READY";
+				}
 				ran = 1;
 				in_init();
 				break;

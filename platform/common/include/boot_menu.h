@@ -84,6 +84,13 @@ void novalk_os_run(int touch_ok);
  * expected IP version was read.
  */
 int novalk_consys_probe(char (*lines)[46], int max, int *count);
+
+/*
+ * Wi-Fi bring-up, stage 2: reserve the shared DRAM block, copy the MCU and
+ * Wi-Fi ROM patches into it, release the MCU and wait for its ready id.
+ * Returns 1 when the MCU reports ready.
+ */
+int novalk_consys_stage2(char (*lines)[46], int max, int *count);
 void novalk_lock_settings(int touch_ok);
 
 void novalk_fastboot_ui_show(void);
