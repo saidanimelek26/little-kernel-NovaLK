@@ -365,19 +365,164 @@ static void xo_dump(struct report *r)
 	    pmic_get_register_value(PMIC_XO_EXTBUF7_MODE));
 }
 
-int novalk_consys_stage2(char (*lines)[LINE_MAX_CH], int max, int *count)
+/* PMIC XO buffer n (1,2,3,4,6,7): software mode, output on. */
+static void xo_get(int n, u32 *mode, u32 *en)
 {
-	struct report r;
+	switch (n) {
+	case 1: *mode = pmic_get_register_value(PMIC_XO_EXTBUF1_MODE);
+		*en = pmic_get_register_value(PMIC_XO_EXTBUF1_EN_M); break;
+	case 2: *mode = pmic_get_register_value(PMIC_XO_EXTBUF2_MODE);
+		*en = pmic_get_register_value(PMIC_XO_EXTBUF2_EN_M); break;
+	case 3: *mode = pmic_get_register_value(PMIC_XO_EXTBUF3_MODE);
+		*en = pmic_get_register_value(PMIC_XO_EXTBUF3_EN_M); break;
+	case 4: *mode = pmic_get_register_value(PMIC_XO_EXTBUF4_MODE);
+		*en = pmic_get_register_value(PMIC_XO_EXTBUF4_EN_M); break;
+	case 6: *mode = pmic_get_register_value(PMIC_XO_EXTBUF6_MODE);
+		*en = pmic_get_register_value(PMIC_XO_EXTBUF6_EN_M); break;
+	default: *mode = pmic_get_register_value(PMIC_XO_EXTBUF7_MODE);
+		*en = pmic_get_register_value(PMIC_XO_EXTBUF7_EN_M); break;
+	}
+}
+
+static void xo_set(int n, u32 mode, u32 en)
+{
+	switch (n) {
+	case 1: pmic_set_register_value(PMIC_XO_EXTBUF1_MODE, mode);
+		pmic_set_register_value(PMIC_XO_EXTBUF1_EN_M, en); break;
+	case 2: pmic_set_register_value(PMIC_XO_EXTBUF2_MODE, mode);
+		pmic_set_register_value(PMIC_XO_EXTBUF2_EN_M, en); break;
+	case 3: pmic_set_register_value(PMIC_XO_EXTBUF3_MODE, mode);
+		pmic_set_register_value(PMIC_XO_EXTBUF3_EN_M, en); break;
+	case 4: pmic_set_register_value(PMIC_XO_EXTBUF4_MODE, mode);
+		pmic_set_register_value(PMIC_XO_EXTBUF4_EN_M, en); break;
+	case 6: pmic_set_register_value(PMIC_XO_EXTBUF6_MODE, mode);
+		pmic_set_register_value(PMIC_XO_EXTBUF6_EN_M, en); break;
+	default: pmic_set_register_value(PMIC_XO_EXTBUF7_MODE, mode);
+		pmic_set_register_value(PMIC_XO_EXTBUF7_EN_M, en); break;
+	}
+}
+
+/*
+ * One complete power-up / MCU start / power-down cycle.
+ *   xo       0 = leave the clock buffers alone, else the PMIC buffer
+ *            (1,2,3,4,6,7) that is forced on in software mode
+ *   mode     patch offset reading, see off_mode
+ * *v600 / *v16c receive the last MCU status words.  Returns 1 when the
+ * MCU reached its ready id.
+ */
+static int stage2_cycle(struct report *r, int xo, int mode, u32 *v600,
+			u32 *v16c)
+{
+	u32 sv_mode = 0, sv_en = 0;
 	u32 ip = 0;
 	u32 v;
 	int ready = 0;
 	int i;
 
+	off_mode = mode;
+	*v600 = 0;
+	*v16c = 0;
+
+	memset((void *)(unsigned long)emi_base, 0, EMI_SIZE);
+
+	pmic_set_register_value(PMIC_RG_LDO_VCN18_EN, 1);
+	pmic_set_register_value(PMIC_RG_LDO_VCN28_HW0_OP_EN, 0);
+	pmic_set_register_value(PMIC_RG_LDO_VCN28_HW0_OP_CFG, 0);
+	if_pinmux(1);
+
+	if (xo) {
+		xo_get(xo, &sv_mode, &sv_en);
+		xo_set(xo, 0, 1);	/* software mode, on */
+	}
+	udelay(150);
+
+	WR(RGU_CPU_SW_RST, RD(RGU_CPU_SW_RST) | CPU_SW_RST_BIT | RST_KEY);
+
+	if (conn_domain_on(r) == 0) {
+		WR(RGU_CPU_SW_RST, (RD(RGU_CPU_SW_RST) & ~SW_RST_BIT) | RST_KEY);
+		conn_bus_prot_release(r);
+		udelay(10);
+
+		for (i = 0; i < 10; i++) {
+			ip = RD(CONN_IP_VER);
+			if (ip == EXPECT_IP_VER)
+				break;
+			mdelay(20);
+		}
+
+		if (ip == EXPECT_IP_VER) {
+			int saved = r->n;
+
+			install_patch(r, "mcu ", consys_patch_mcu,
+				      consys_patch_mcu_end, BUILDTIME_OFF_MCU);
+			install_patch(r, "wifi", consys_patch_wifi,
+				      consys_patch_wifi_end,
+				      BUILDTIME_OFF_WIFI);
+			r->n = saved;	/* keep the report short */
+
+			arch_clean_invalidate_cache_range((addr_t)emi_base,
+							  EMI_SIZE);
+
+			v = RD(EMI_REMAP_REG);
+			WR(EMI_REMAP_REG, (v & 0xfffff000) |
+			   (u32)((emi_base >> 24) & 0xfff));
+			v = RD(EMI_PERI_REMAP_REG);
+			WR(EMI_PERI_REMAP_REG, (v & 0xf000ffff) |
+			   (((0x10003000 >> 24) & 0xfff) << 16));
+
+			v = RD(MCU_ROM_DELSEL);
+			WR(MCU_ROM_DELSEL, (v & 0xffff0000) | 0x17);
+			v = RD(COCLOCK_ACK_REG);
+			WR(COCLOCK_ACK_REG, v & ~1u);
+			WR(MCU_SW_IRQ, RD(MCU_SW_IRQ) | EMI_CTRL_VALUE);
+
+			WR(RGU_CPU_SW_RST,
+			   (RD(RGU_CPU_SW_RST) & ~CPU_SW_RST_BIT) | RST_KEY);
+
+			for (i = 0; i < 11; i++) {
+				*v600 = RD(CONN_VER_ID_0x600);
+				if (*v600 == MCU_READY_ID) {
+					ready = 1;
+					break;
+				}
+				mdelay(20);
+			}
+			*v16c = RD(MCU_CPU_STATE);
+		} else {
+			*v600 = 0xdead0000 | (ip & 0xffff);
+		}
+
+		WR(RGU_CPU_SW_RST, RD(RGU_CPU_SW_RST) | CPU_SW_RST_BIT | RST_KEY);
+		conn_bus_prot_set(r);
+		conn_domain_off(r);
+	}
+
+	if (xo)
+		xo_set(xo, sv_mode, sv_en);	/* put the buffer back */
+	if_pinmux(0);
+	pmic_set_register_value(PMIC_RG_LDO_VCN18_EN, 0);
+
+	return ready;
+}
+
+/*
+ * Stage 2 tries, until the MCU reports ready:
+ *     for each XO buffer candidate (none, 2, 3, 6, 7, 4, 1)
+ *         for each patch offset reading (aligned, raw)
+ * and writes one line per try.  Every PMIC change is undone after its try.
+ */
+int novalk_consys_stage2(char (*lines)[LINE_MAX_CH], int max, int *count)
+{
+	static const int xo_list[] = { 0, 2, 3, 6, 7, 4, 1 };
+	struct report r;
+	u32 v600, v16c;
+	int ready = 0;
+	int a, m;
+
 	r.line = lines;
 	r.max = max;
 	r.n = 0;
 
-	/* 1. the shared DRAM block (reserved once, kept for later runs) */
 	if (!emi_base)
 		emi_base = mblock_reserve_ext(&g_boot_arg->mblock_info, EMI_SIZE,
 					      EMI_ALIGN, EMI_LIMIT, 0,
@@ -389,95 +534,31 @@ int novalk_consys_stage2(char (*lines)[LINE_MAX_CH], int max, int *count)
 		*count = r.n;
 		return 0;
 	}
-	say(&r, "EMI block %08x +4MB  offsets:%s", (u32)emi_base,
-	    off_mode ? "raw" : "aligned");
-
-	memset((void *)(unsigned long)emi_base, 0, EMI_SIZE);
-
-	/* 2. rails, pinmux; co-clock mode = VCN28 hardware mode off */
-	pmic_set_register_value(PMIC_RG_LDO_VCN18_EN, 1);
-	pmic_set_register_value(PMIC_RG_LDO_VCN28_HW0_OP_EN, 0);
-	pmic_set_register_value(PMIC_RG_LDO_VCN28_HW0_OP_CFG, 0);
-	if_pinmux(1);
-	udelay(150);
+	say(&r, "EMI block %08x +4MB", (u32)emi_base);
 	xo_dump(&r);
 
-	/* 3. hold the MCU, power domain, bus */
-	WR(RGU_CPU_SW_RST, RD(RGU_CPU_SW_RST) | CPU_SW_RST_BIT | RST_KEY);
+	for (a = 0; a < (int)(sizeof(xo_list) / sizeof(xo_list[0])) && !ready;
+	     a++) {
+		for (m = 0; m < 2 && !ready; m++) {
+			struct report quiet = r;
+			char scratch[8][LINE_MAX_CH];
 
-	if (conn_domain_on(&r) == 0) {
-		WR(RGU_CPU_SW_RST, (RD(RGU_CPU_SW_RST) & ~SW_RST_BIT) | RST_KEY);
-		conn_bus_prot_release(&r);
-		udelay(10);
+			/* domain/bus lines of each try go to scratch space */
+			quiet.line = scratch;
+			quiet.max = 8;
+			quiet.n = 0;
 
-		for (i = 0; i < 10; i++) {
-			ip = RD(CONN_IP_VER);
-			if (ip == EXPECT_IP_VER)
-				break;
-			mdelay(20);
+			ready = stage2_cycle(&quiet, xo_list[a], m, &v600,
+					     &v16c);
+
+			say(&r, "xo%d %s: 600=%04x 16c=%x%s", xo_list[a],
+			    m ? "raw" : "aln", v600 & 0xffff, v16c & 0xffff,
+			    ready ? " READY" : "");
 		}
-		say(&r, "IP ver %08x %s", ip, ip == EXPECT_IP_VER ? "ok" : "BAD");
-
-		if (ip == EXPECT_IP_VER) {
-			/* 4. patches, remap, the rest of polling_consys_chipid */
-			install_patch(&r, "mcu ", consys_patch_mcu,
-				      consys_patch_mcu_end,
-				      BUILDTIME_OFF_MCU);
-			install_patch(&r, "wifi", consys_patch_wifi,
-				      consys_patch_wifi_end,
-				      BUILDTIME_OFF_WIFI);
-			arch_clean_invalidate_cache_range(
-				(addr_t)emi_base, EMI_SIZE);
-
-			v = RD(EMI_REMAP_REG);
-			WR(EMI_REMAP_REG, (v & 0xfffff000) |
-			   (u32)((emi_base >> 24) & 0xfff));
-			v = RD(EMI_PERI_REMAP_REG);
-			WR(EMI_PERI_REMAP_REG, (v & 0xf000ffff) |
-			   (((0x10003000 >> 24) & 0xfff) << 16));
-			say(&r, "remap %08x/%08x", RD(EMI_REMAP_REG),
-			    RD(EMI_PERI_REMAP_REG));
-
-			v = RD(MCU_ROM_DELSEL);
-			WR(MCU_ROM_DELSEL, (v & 0xffff0000) | 0x17);
-
-			v = RD(COCLOCK_ACK_REG);
-			WR(COCLOCK_ACK_REG, v & ~1u);
-
-			WR(MCU_SW_IRQ, RD(MCU_SW_IRQ) | EMI_CTRL_VALUE);
-
-			/* 5. release the MCU and wait for its ready id */
-			WR(RGU_CPU_SW_RST,
-			   (RD(RGU_CPU_SW_RST) & ~CPU_SW_RST_BIT) | RST_KEY);
-
-			for (i = 0; i < 11; i++) {
-				v = RD(CONN_VER_ID_0x600);
-				if (v == MCU_READY_ID) {
-					ready = 1;
-					break;
-				}
-				mdelay(20);
-			}
-			say(&r, "mcu[+0x600]=%04x (want %04x)", v & 0xffff,
-			    MCU_READY_ID);
-			say(&r, "mcu state[+0x16c]=%08x", RD(MCU_CPU_STATE));
-			say(&r, "EMI head %08x %08x",
-			    *(volatile u32 *)(unsigned long)(emi_base + 0x68320),
-			    *(volatile u32 *)(unsigned long)(emi_base + 0x68000));
-		}
-
-		/* 6. stop the MCU again and power everything down */
-		WR(RGU_CPU_SW_RST, RD(RGU_CPU_SW_RST) | CPU_SW_RST_BIT | RST_KEY);
-		conn_bus_prot_set(&r);
-		conn_domain_off(&r);
 	}
-
-	if_pinmux(0);
-	pmic_set_register_value(PMIC_RG_LDO_VCN18_EN, 0);
 
 	say(&r, ready ? "RESULT: MCU RUNNING" : "RESULT: MCU NOT READY");
 	*count = r.n;
-	off_mode ^= 1;	/* next run uses the other reading */
 
 	return ready;
 }
