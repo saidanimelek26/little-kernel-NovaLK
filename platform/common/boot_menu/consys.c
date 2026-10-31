@@ -425,10 +425,18 @@ static int stage2_cycle(struct report *r, int xo, int mode, u32 *v600,
 
 	memset((void *)(unsigned long)emi_base, 0, EMI_SIZE);
 
+	/*
+	 * consys_hw_vcn18_ctrl(): VCN18, and VCN33_BT unless an external LDO
+	 * is used.  Then, in co-clock mode, the VCN28 hardware mode is turned
+	 * off and mtk_wcn_consys_hw_efuse_paldo_ctrl() switches VCN28 on.
+	 */
 	pmic_set_register_value(PMIC_RG_LDO_VCN18_EN, 1);
+	pmic_set_register_value(PMIC_RG_LDO_VCN33_EN_0, 1);
+	if_pinmux(1);
+	udelay(150);
 	pmic_set_register_value(PMIC_RG_LDO_VCN28_HW0_OP_EN, 0);
 	pmic_set_register_value(PMIC_RG_LDO_VCN28_HW0_OP_CFG, 0);
-	if_pinmux(1);
+	pmic_set_register_value(PMIC_RG_LDO_VCN28_EN, 1);
 
 	if (xo) {
 		xo_get(xo, &sv_mode, &sv_en);
@@ -500,6 +508,8 @@ static int stage2_cycle(struct report *r, int xo, int mode, u32 *v600,
 	if (xo)
 		xo_set(xo, sv_mode, sv_en);	/* put the buffer back */
 	if_pinmux(0);
+	pmic_set_register_value(PMIC_RG_LDO_VCN28_EN, 0);
+	pmic_set_register_value(PMIC_RG_LDO_VCN33_EN_0, 0);
 	pmic_set_register_value(PMIC_RG_LDO_VCN18_EN, 0);
 
 	return ready;
@@ -536,6 +546,19 @@ int novalk_consys_stage2(char (*lines)[LINE_MAX_CH], int max, int *count)
 	}
 	say(&r, "EMI block %08x +4MB", (u32)emi_base);
 	xo_dump(&r);
+
+	/* prove that the rails really switch on (read back, then off again) */
+	pmic_set_register_value(PMIC_RG_LDO_VCN18_EN, 1);
+	pmic_set_register_value(PMIC_RG_LDO_VCN28_EN, 1);
+	pmic_set_register_value(PMIC_RG_LDO_VCN33_EN_0, 1);
+	udelay(200);
+	say(&r, "rails en 18/28/33bt: %d/%d/%d",
+	    pmic_get_register_value(PMIC_RG_LDO_VCN18_EN),
+	    pmic_get_register_value(PMIC_RG_LDO_VCN28_EN),
+	    pmic_get_register_value(PMIC_RG_LDO_VCN33_EN_0));
+	pmic_set_register_value(PMIC_RG_LDO_VCN28_EN, 0);
+	pmic_set_register_value(PMIC_RG_LDO_VCN33_EN_0, 0);
+	pmic_set_register_value(PMIC_RG_LDO_VCN18_EN, 0);
 
 	for (a = 0; a < (int)(sizeof(xo_list) / sizeof(xo_list[0])) && !ready;
 	     a++) {
