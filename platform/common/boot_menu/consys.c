@@ -293,6 +293,16 @@ extern const u8 consys_patch_wifi[], consys_patch_wifi_end[];
 #define EMI_CTRL_VALUE		((1u << 0) | (1u << 15) | (1u << 21))
 #define COCLOCK_ACK_REG		(0x180c1200 + 0x4)
 #define MCU_READY_ID		0x1d1e
+#define CONN_HIF_ON_BASE	0x18007000
+#define MCU_CPUPCR		(CONN_HIF_ON_BASE + 0x104)
+
+/* time line of the MCU after release (stage 2 observation run) */
+#define OBS_MAX			24
+struct obs {
+	u32 v600[OBS_MAX];
+	u32 pc[OBS_MAX];
+	int n;
+};
 #define PATCH_HDR_SIZE		32
 #define BUILDTIME_SIZE		16
 #define BUILDTIME_OFF_WIFI	0x68310
@@ -411,7 +421,7 @@ static void xo_set(int n, u32 mode, u32 en)
  * MCU reached its ready id.
  */
 static int stage2_cycle(struct report *r, int xo, int mode, u32 *v600,
-			u32 *v16c)
+			u32 *v16c, struct obs *o)
 {
 	u32 sv_mode = 0, sv_en = 0;
 	u32 ip = 0;
@@ -496,6 +506,19 @@ static int stage2_cycle(struct report *r, int xo, int mode, u32 *v600,
 				mdelay(20);
 			}
 			*v16c = RD(MCU_CPU_STATE);
+
+			/* observation: 100 ms steps for about two seconds */
+			for (i = 0; o && !ready && i < OBS_MAX; i++) {
+				o->v600[i] = RD(CONN_VER_ID_0x600);
+				o->pc[i] = RD(MCU_CPUPCR);
+				o->n = i + 1;
+				if (o->v600[i] == MCU_READY_ID) {
+					ready = 1;
+					*v600 = o->v600[i];
+					break;
+				}
+				mdelay(100);
+			}
 		} else {
 			*v600 = 0xdead0000 | (ip & 0xffff);
 		}
@@ -516,22 +539,24 @@ static int stage2_cycle(struct report *r, int xo, int mode, u32 *v600,
 }
 
 /*
- * Stage 2 tries, until the MCU reports ready:
- *     for each XO buffer candidate (none, 2, 3, 6, 7, 4, 1)
- *         for each patch offset reading (aligned, raw)
- * and writes one line per try.  Every PMIC change is undone after its try.
+ * Stage 2: two quick tries (patch offsets "aligned" and "raw"), then one
+ * observation run that follows the MCU for about two seconds and prints how
+ * its status word (+0x600) and program counter change with time.
  */
 int novalk_consys_stage2(char (*lines)[LINE_MAX_CH], int max, int *count)
 {
-	static const int xo_list[] = { 0, 2, 3, 6, 7, 4, 1 };
 	struct report r;
+	struct obs o;
 	u32 v600, v16c;
+	u32 last600 = 0xffffffff, lastpc = 0xffffffff;
 	int ready = 0;
-	int a, m;
+	int shown = 0;
+	int m, i;
 
 	r.line = lines;
 	r.max = max;
 	r.n = 0;
+	memset(&o, 0, sizeof(o));
 
 	if (!emi_base)
 		emi_base = mblock_reserve_ext(&g_boot_arg->mblock_info, EMI_SIZE,
@@ -545,38 +570,41 @@ int novalk_consys_stage2(char (*lines)[LINE_MAX_CH], int max, int *count)
 		return 0;
 	}
 	say(&r, "EMI block %08x +4MB", (u32)emi_base);
-	xo_dump(&r);
 
-	/* prove that the rails really switch on (read back, then off again) */
-	pmic_set_register_value(PMIC_RG_LDO_VCN18_EN, 1);
-	pmic_set_register_value(PMIC_RG_LDO_VCN28_EN, 1);
-	pmic_set_register_value(PMIC_RG_LDO_VCN33_EN_0, 1);
-	udelay(200);
-	say(&r, "rails en 18/28/33bt: %d/%d/%d",
-	    pmic_get_register_value(PMIC_RG_LDO_VCN18_EN),
-	    pmic_get_register_value(PMIC_RG_LDO_VCN28_EN),
-	    pmic_get_register_value(PMIC_RG_LDO_VCN33_EN_0));
-	pmic_set_register_value(PMIC_RG_LDO_VCN28_EN, 0);
-	pmic_set_register_value(PMIC_RG_LDO_VCN33_EN_0, 0);
-	pmic_set_register_value(PMIC_RG_LDO_VCN18_EN, 0);
+	for (m = 0; m < 2 && !ready; m++) {
+		struct report quiet = r;
+		char scratch[8][LINE_MAX_CH];
 
-	for (a = 0; a < (int)(sizeof(xo_list) / sizeof(xo_list[0])) && !ready;
-	     a++) {
-		for (m = 0; m < 2 && !ready; m++) {
-			struct report quiet = r;
-			char scratch[8][LINE_MAX_CH];
+		quiet.line = scratch;
+		quiet.max = 8;
+		quiet.n = 0;
 
-			/* domain/bus lines of each try go to scratch space */
-			quiet.line = scratch;
-			quiet.max = 8;
-			quiet.n = 0;
+		ready = stage2_cycle(&quiet, 0, m, &v600, &v16c, NULL);
+		say(&r, "try %s: 600=%04x 16c=%x%s", m ? "raw" : "aln",
+		    v600 & 0xffff, v16c & 0xffff, ready ? " READY" : "");
+	}
 
-			ready = stage2_cycle(&quiet, xo_list[a], m, &v600,
-					     &v16c);
+	if (!ready) {
+		struct report quiet = r;
+		char scratch[8][LINE_MAX_CH];
 
-			say(&r, "xo%d %s: 600=%04x 16c=%x%s", xo_list[a],
-			    m ? "raw" : "aln", v600 & 0xffff, v16c & 0xffff,
-			    ready ? " READY" : "");
+		quiet.line = scratch;
+		quiet.max = 8;
+		quiet.n = 0;
+
+		/* the raw reading wrote last, repeat the aligned one */
+		ready = stage2_cycle(&quiet, 0, 0, &v600, &v16c, &o);
+
+		say(&r, "observe %d samples (100 ms apart):", o.n);
+		for (i = 0; i < o.n && shown < 9; i++) {
+			if (o.v600[i] == last600 && o.pc[i] == lastpc &&
+			    i != o.n - 1)
+				continue;
+			say(&r, " t%02d 600=%04x pc=%08x", i,
+			    o.v600[i] & 0xffff, o.pc[i]);
+			last600 = o.v600[i];
+			lastpc = o.pc[i];
+			shown++;
 		}
 	}
 
