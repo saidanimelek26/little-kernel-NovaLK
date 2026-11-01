@@ -421,7 +421,7 @@ static void xo_set(int n, u32 mode, u32 en)
  * MCU reached its ready id.
  */
 static int stage2_cycle(struct report *r, int xo, int mode, u32 *v600,
-			u32 *v16c, struct obs *o)
+			u32 *v16c, struct obs *o, void (*hook)(void *), void *harg)
 {
 	u32 sv_mode = 0, sv_en = 0;
 	u32 ip = 0;
@@ -519,6 +519,12 @@ static int stage2_cycle(struct report *r, int xo, int mode, u32 *v600,
 				}
 				mdelay(100);
 			}
+
+			/* stage 3: talk to the running MCU while it is up */
+			if (hook) {
+				mdelay(300);
+				hook(harg);
+			}
 		} else {
 			*v600 = 0xdead0000 | (ip & 0xffff);
 		}
@@ -579,7 +585,7 @@ int novalk_consys_stage2(char (*lines)[LINE_MAX_CH], int max, int *count)
 		quiet.max = 8;
 		quiet.n = 0;
 
-		ready = stage2_cycle(&quiet, 0, m, &v600, &v16c, NULL);
+		ready = stage2_cycle(&quiet, 0, m, &v600, &v16c, NULL, NULL, NULL);
 		say(&r, "try %s: 600=%04x 16c=%x%s", m ? "raw" : "aln",
 		    v600 & 0xffff, v16c & 0xffff, ready ? " READY" : "");
 	}
@@ -593,7 +599,7 @@ int novalk_consys_stage2(char (*lines)[LINE_MAX_CH], int max, int *count)
 		quiet.n = 0;
 
 		/* the raw reading wrote last, repeat the aligned one */
-		ready = stage2_cycle(&quiet, 0, 0, &v600, &v16c, &o);
+		ready = stage2_cycle(&quiet, 0, 0, &v600, &v16c, &o, NULL, NULL);
 
 		say(&r, "observe %d samples (100 ms apart):", o.n);
 		for (i = 0; i < o.n && shown < 9; i++) {
@@ -608,8 +614,259 @@ int novalk_consys_stage2(char (*lines)[LINE_MAX_CH], int max, int *count)
 		}
 	}
 
+	{
+		/* distinct program counter values seen during observation */
+		int distinct = 0;
+		int j, k;
+
+		for (j = 0; j < o.n; j++) {
+			for (k = 0; k < j; k++)
+				if (o.pc[k] == o.pc[j])
+					break;
+			if (k == j)
+				distinct++;
+		}
+		if (!ready && distinct >= 3) {
+			say(&r, "PC visited %d addresses: MCU RUNS", distinct);
+			ready = 1;
+		}
+	}
+
 	say(&r, ready ? "RESULT: MCU RUNNING" : "RESULT: MCU NOT READY");
 	*count = r.n;
 
 	return ready;
+}
+
+
+/* ================================================================== */
+/* Stage 3: BTIF + STP + WMT, first words with the running MCU         */
+/* ================================================================== */
+/*
+ * BTIF is the serial-like link between the AP and the MCU.  This uses plain
+ * register polling (PIO), no DMA and no interrupts.  Register layout and the
+ * init order are those of drivers/misc/mediatek/btif/common/btif_plat.c
+ * (hal_btif_hw_init, hal_btif_send_data, hal_btif_raise_wak_sig).
+ *
+ * STP frames, from stp_core.c (stp_send_data_no_ps):
+ *   MAND mode : 80 | (type<<4)|(len>>8) | len&ff | 00 | payload | 00 00
+ *   FULL mode : (80 + seq<<3 + ack) | same | (b0+b1+b2)&ff | payload | crc16
+ * The probe sends the WMT command "query STP" ({01 04 01 00 04}, type 0) in
+ * both framings and prints whatever comes back.
+ */
+
+#define BTIF_BASE_ADDR		0x1100c000	/* same as BTIF_BASE of the platform */
+#define BTIF_RBR		(BTIF_BASE_ADDR + 0x00)
+#define BTIF_THR		(BTIF_BASE_ADDR + 0x00)
+#define BTIF_IER		(BTIF_BASE_ADDR + 0x04)
+#define BTIF_FIFOCTRL		(BTIF_BASE_ADDR + 0x08)
+#define BTIF_FAKELCR		(BTIF_BASE_ADDR + 0x0c)
+#define BTIF_LSR		(BTIF_BASE_ADDR + 0x14)
+#define BTIF_DMA_EN		(BTIF_BASE_ADDR + 0x4c)
+#define BTIF_TRI_LVL		(BTIF_BASE_ADDR + 0x60)
+#define BTIF_WAK		(BTIF_BASE_ADDR + 0x64)
+#define BTIF_HANDSHAKE		(BTIF_BASE_ADDR + 0x6c)
+#define BTIF_LSR_DR		(1u << 0)
+#define BTIF_LSR_THRE		(1u << 5)
+#define INFRA_CG2_CLR		(INFRA_BASE + 0x84)	/* IFR2 clear register */
+#define INFRA_CG2_BTIF		(1u << 31)
+
+#define STP_TYPE_WMT		0	/* WMT_TASK_INDX (assumed) */
+
+static u16 crc16_arc(const u8 *p, u32 n)
+{
+	u32 crc = 0;
+	u32 i;
+	int b;
+
+	for (i = 0; i < n; i++) {
+		crc ^= p[i];
+		for (b = 0; b < 8; b++)
+			crc = (crc & 1) ? (crc >> 1) ^ 0xa001 : crc >> 1;
+	}
+
+	return (u16)crc;
+}
+
+static void btif_init(void)
+{
+	WR(INFRA_CG2_CLR, INFRA_CG2_BTIF);	/* ungate the BTIF clock */
+	udelay(20);
+
+	WR(BTIF_FAKELCR, 0);			/* normal mode */
+	WR(BTIF_HANDSHAKE, RD(BTIF_HANDSHAKE) | 1);	/* new handshake */
+
+	WR(BTIF_FIFOCTRL, 0x02);		/* clear RX fifo */
+	WR(BTIF_FIFOCTRL, 0x00);
+	WR(BTIF_FIFOCTRL, 0x04);		/* clear TX fifo */
+	WR(BTIF_FIFOCTRL, 0x00);
+
+	WR(BTIF_TRI_LVL, (8u & 0xf) | ((1u & 0x7) << 4));
+	WR(BTIF_DMA_EN, (RD(BTIF_DMA_EN) & ~3u) | (1u << 2));	/* PIO */
+	WR(BTIF_IER, 0);			/* polling only */
+}
+
+/* wake-up pulse for the MCU side of the link */
+static void btif_wake(void)
+{
+	WR(BTIF_WAK, RD(BTIF_WAK) & ~1u);
+	udelay(150);
+	WR(BTIF_WAK, RD(BTIF_WAK) | 1u);
+	udelay(300);
+}
+
+static int btif_tx(const u8 *p, int n)
+{
+	int i;
+	int us;
+
+	for (i = 0; i < n; i++) {
+		for (us = 0; us < 20000; us++) {
+			if (RD(BTIF_LSR) & BTIF_LSR_THRE)
+				break;
+			udelay(1);
+		}
+		if (us >= 20000)
+			return i;
+		WR(BTIF_THR, p[i]);
+	}
+
+	return n;
+}
+
+static int btif_rx(u8 *buf, int max, int ms)
+{
+	int n = 0;
+	int t;
+
+	for (t = 0; t < ms * 10 && n < max; t++) {
+		if (RD(BTIF_LSR) & BTIF_LSR_DR)
+			buf[n++] = (u8)RD(BTIF_RBR);
+		else
+			udelay(100);
+	}
+
+	return n;
+}
+
+struct stage3_arg {
+	struct report *r;
+	int replies;
+};
+
+static void hexline(struct report *r, const char *tag, const u8 *b, int n)
+{
+	char s[LINE_MAX_CH];
+	int i;
+	int o = 0;
+
+	o += snprintf(s + o, sizeof(s) - o, "%s", tag);
+	for (i = 0; i < n && o < (int)sizeof(s) - 4; i++)
+		o += snprintf(s + o, sizeof(s) - o, "%02x ", b[i]);
+	say(r, "%s", s);
+}
+
+static void stage3_probe(void *argp)
+{
+	struct stage3_arg *a = argp;
+	static const u8 wmt_cmd[5] = { 0x01, 0x04, 0x01, 0x00, 0x04 };
+	u8 frame[24];
+	u8 rx[24];
+	int mode;
+	int len;
+	int sent;
+	int got;
+
+	btif_init();
+	say(a->r, "BTIF lsr=%02x hs=%x tri=%02x", RD(BTIF_LSR),
+	    RD(BTIF_HANDSHAKE) & 0xff, RD(BTIF_TRI_LVL) & 0xff);
+
+	for (mode = 0; mode < 2; mode++) {
+		u16 crc;
+
+		len = 0;
+		if (mode == 0) {
+			/* MAND framing */
+			frame[len++] = 0x80;
+			frame[len++] = (STP_TYPE_WMT << 4) | 0x00;
+			frame[len++] = sizeof(wmt_cmd);
+			frame[len++] = 0x00;
+			memcpy(frame + len, wmt_cmd, sizeof(wmt_cmd));
+			len += sizeof(wmt_cmd);
+			frame[len++] = 0x00;
+			frame[len++] = 0x00;
+		} else {
+			/* FULL framing, sequence 0, ack 0 */
+			frame[len++] = 0x80;
+			frame[len++] = (STP_TYPE_WMT << 4) | 0x00;
+			frame[len++] = sizeof(wmt_cmd);
+			frame[len++] = (u8)(frame[0] + frame[1] + frame[2]);
+			memcpy(frame + len, wmt_cmd, sizeof(wmt_cmd));
+			len += sizeof(wmt_cmd);
+			crc = crc16_arc(wmt_cmd, sizeof(wmt_cmd));
+			frame[len++] = (u8)(crc & 0xff);
+			frame[len++] = (u8)(crc >> 8);
+		}
+
+		btif_wake();
+		(void)btif_rx(rx, sizeof(rx), 5);	/* drain old bytes */
+
+		sent = btif_tx(frame, len);
+		got = btif_rx(rx, sizeof(rx), 400);
+
+		say(a->r, "%s tx %d/%d rx %d lsr=%02x", mode ? "FULL" : "MAND",
+		    sent, len, got, RD(BTIF_LSR));
+		if (got) {
+			hexline(a->r, " ", rx, got > 12 ? 12 : got);
+			a->replies++;
+		}
+	}
+}
+
+/*
+ * Stage 3: power the block, load the ROM patches, start the MCU (exactly as
+ * stage 2), then run the BTIF/STP/WMT probe while it is up.
+ */
+int novalk_consys_stage3(char (*lines)[LINE_MAX_CH], int max, int *count)
+{
+	struct report r;
+	struct stage3_arg a;
+	u32 v600, v16c;
+
+	r.line = lines;
+	r.max = max;
+	r.n = 0;
+	a.r = &r;
+	a.replies = 0;
+
+	if (!emi_base)
+		emi_base = mblock_reserve_ext(&g_boot_arg->mblock_info, EMI_SIZE,
+					      EMI_ALIGN, EMI_LIMIT, 0,
+					      "novalk-consys");
+	if (!emi_base || emi_base < 0x40000000ULL ||
+	    emi_base + EMI_SIZE > EMI_LIMIT) {
+		say(&r, "EMI block: FAILED (%x)", (u32)emi_base);
+		emi_base = 0;
+		*count = r.n;
+		return 0;
+	}
+	say(&r, "EMI block %08x +4MB", (u32)emi_base);
+
+	{
+		struct report quiet = r;
+		char scratch[8][LINE_MAX_CH];
+
+		quiet.line = scratch;
+		quiet.max = 8;
+		quiet.n = 0;
+
+		(void)stage2_cycle(&quiet, 0, 0, &v600, &v16c, NULL,
+				   stage3_probe, &a);
+	}
+
+	say(&r, "mcu 600=%04x", v600 & 0xffff);
+	say(&r, a.replies ? "RESULT: MCU ANSWERED" : "RESULT: NO ANSWER YET");
+	*count = r.n;
+
+	return a.replies ? 1 : 0;
 }

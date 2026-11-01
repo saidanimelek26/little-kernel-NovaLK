@@ -91,6 +91,13 @@ int novalk_consys_probe(char (*lines)[46], int max, int *count);
  * Returns 1 when the MCU reports ready.
  */
 int novalk_consys_stage2(char (*lines)[46], int max, int *count);
+
+/*
+ * Wi-Fi bring-up, stage 3: as stage 2, then open BTIF and send the WMT
+ * "query STP" command in both STP framings; shows what the MCU answers.
+ * Returns 1 when any bytes came back.
+ */
+int novalk_consys_stage3(char (*lines)[46], int max, int *count);
 void novalk_lock_settings(int touch_ok);
 
 void novalk_fastboot_ui_show(void);
