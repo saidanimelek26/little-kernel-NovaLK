@@ -295,6 +295,7 @@ extern const u8 consys_patch_wifi[], consys_patch_wifi_end[];
 #define MCU_READY_ID		0x1d1e
 #define CONN_HIF_ON_BASE	0x18007000
 #define MCU_CPUPCR		(CONN_HIF_ON_BASE + 0x104)
+#define CONN_HIF_PDMA_AXI_RREADY	(CONN_HIF_ON_BASE + 0x154)
 
 /* time line of the MCU after release (stage 2 observation run) */
 #define OBS_MAX			24
@@ -303,7 +304,7 @@ struct obs {
 	u32 pc[OBS_MAX];
 	int n;
 };
-#define PATCH_HDR_SIZE		32
+#define PATCH_HDR_SIZE		48	/* RE verified from mtk_wcn_soc_rom_patch_dwn: sub r0, r0, #0x30 */
 #define BUILDTIME_SIZE		16
 #define BUILDTIME_OFF_WIFI	0x68310
 #define BUILDTIME_OFF_MCU	0x68320
@@ -338,8 +339,8 @@ static int install_patch(struct report *r, const char *name, const u8 *img,
 		    ((u32)img[27] << 24);
 	type = img[28] | (img[29] << 8) | (img[30] << 16) | ((u32)img[31] << 24);
 
-	/* MCU view 0xf0xxxxxx */
-	off = off_mode ? (addr_word & 0x00ffffff) : (addr_word & 0x00ffff00);
+	/* MCU view 0xf0xxxxxx: vendor driver always masks with 0x00ffffff */
+	off = addr_word & 0x00ffffff;
 	body = len - PATCH_HDR_SIZE;
 
 	if (off + body >= EMI_SIZE) {
@@ -350,7 +351,7 @@ static int install_patch(struct report *r, const char *name, const u8 *img,
 	memcpy((void *)(unsigned long)(emi_base + off), img + PATCH_HDR_SIZE,
 	       body);
 	memcpy((void *)(unsigned long)(emi_base + buildtime_off), img,
-	       BUILDTIME_SIZE - 1);
+	       BUILDTIME_SIZE);
 
 	say(r, "%s: type %u -> EMI+%06x  %u KB", name, type, off, body / 1024);
 
@@ -494,8 +495,17 @@ static int stage2_cycle(struct report *r, int xo, int mode, u32 *v600,
 			WR(COCLOCK_ACK_REG, v & ~1u);
 			WR(MCU_SW_IRQ, RD(MCU_SW_IRQ) | EMI_CTRL_VALUE);
 
+			/*
+			 * MT6765 vendor consys_set_pdma_axi_rready_force_high(1):
+			 * assert bit 1 of 0x18007154 so PDMA AXI transactions do not stall.
+			 */
+			WR(CONN_HIF_PDMA_AXI_RREADY, RD(CONN_HIF_PDMA_AXI_RREADY) | (1u << 1));
+
 			WR(RGU_CPU_SW_RST,
 			   (RD(RGU_CPU_SW_RST) & ~CPU_SW_RST_BIT) | RST_KEY);
+
+			/* Clear PDMA AXI force high once MCU is released */
+			WR(CONN_HIF_PDMA_AXI_RREADY, RD(CONN_HIF_PDMA_AXI_RREADY) & ~(1u << 1));
 
 			for (i = 0; i < 11; i++) {
 				*v600 = RD(CONN_VER_ID_0x600);
@@ -671,7 +681,11 @@ int novalk_consys_stage2(char (*lines)[LINE_MAX_CH], int max, int *count)
 #define INFRA_CG2_CLR		(INFRA_BASE + 0x84)	/* IFR2 clear register */
 #define INFRA_CG2_BTIF		(1u << 31)
 
-#define STP_TYPE_WMT		0	/* WMT_TASK_INDX (assumed) */
+#define STP_TYPE_BT		0
+#define STP_TYPE_FM		1
+#define STP_TYPE_GPS		2
+#define STP_TYPE_WIFI		3
+#define STP_TYPE_WMT		4	/* WMT_TASK_INDX (Wireless Management Task) */
 
 static u16 crc16_arc(const u8 *p, u32 n)
 {
@@ -869,4 +883,128 @@ int novalk_consys_stage3(char (*lines)[LINE_MAX_CH], int max, int *count)
 	*count = r.n;
 
 	return a.replies ? 1 : 0;
+}
+
+
+/* ================================================================== */
+/* Stage 4: Wi-Fi Core Power-On (WMT FUNC_ON command)                 */
+/* ================================================================== */
+/*
+ * Reverse-engineered from wmt_drv.ko (wmt_core_func_ctrl_cmd):
+ * Opcode: 0x06 (WMT_CMD_FUNC_CTRL)
+ * Payload: { 0x03 (Wi-Fi), 0x01 (ON) }
+ * Full WMT Packet: { 0x01, 0x06, 0x02, 0x00, 0x03, 0x01 }
+ * Sent via STP Type 4 (STP_TYPE_WMT).
+ * Expected MCU event response: { 0x02, 0x06, 0x01, 0x00, 0x00 } (0x00 = SUCCESS)
+ */
+struct stage4_arg {
+	struct report *r;
+	int ok;
+};
+
+static void stage4_probe(void *argp)
+{
+	struct stage4_arg *a = argp;
+	static const u8 wmt_wifi_on[6] = { 0x01, 0x06, 0x02, 0x00, 0x03, 0x01 };
+	u8 frame[24];
+	u8 rx[32];
+	int mode;
+	int len;
+	int sent;
+	int got;
+	int i;
+
+	btif_init();
+	say(a->r, "BTIF ready, sending WMT FUNC_ON (Wi-Fi)...");
+
+	for (mode = 0; mode < 2 && !a->ok; mode++) {
+		u16 crc;
+		len = 0;
+		if (mode == 0) {
+			/* MAND framing */
+			frame[len++] = 0x80;
+			frame[len++] = (STP_TYPE_WMT << 4) | 0x00;
+			frame[len++] = sizeof(wmt_wifi_on);
+			frame[len++] = 0x00;
+			memcpy(frame + len, wmt_wifi_on, sizeof(wmt_wifi_on));
+			len += sizeof(wmt_wifi_on);
+			frame[len++] = 0x00;
+			frame[len++] = 0x00;
+		} else {
+			/* FULL framing */
+			frame[len++] = 0x80;
+			frame[len++] = (STP_TYPE_WMT << 4) | 0x00;
+			frame[len++] = sizeof(wmt_wifi_on);
+			frame[len++] = (u8)(frame[0] + frame[1] + frame[2]);
+			memcpy(frame + len, wmt_wifi_on, sizeof(wmt_wifi_on));
+			len += sizeof(wmt_wifi_on);
+			crc = crc16_arc(wmt_wifi_on, sizeof(wmt_wifi_on));
+			frame[len++] = (u8)(crc & 0xff);
+			frame[len++] = (u8)(crc >> 8);
+		}
+
+		btif_wake();
+		(void)btif_rx(rx, sizeof(rx), 5);
+
+		sent = btif_tx(frame, len);
+		got = btif_rx(rx, sizeof(rx), 500);
+
+		say(a->r, "%s tx %d/%d rx %d", mode ? "FULL" : "MAND", sent, len, got);
+		if (got > 0) {
+			hexline(a->r, " ", rx, got > 12 ? 12 : got);
+			for (i = 0; i <= got - 5; i++) {
+				if (rx[i] == 0x02 && rx[i + 1] == 0x06 &&
+				    rx[i + 2] == 0x01 && rx[i + 3] == 0x00 &&
+				    rx[i + 4] == 0x00) {
+					a->ok = 1;
+					say(a->r, "WMT Wi-Fi FUNC_ON: SUCCESS (0x00)");
+					break;
+				}
+			}
+		}
+	}
+}
+
+int novalk_consys_stage4(char (*lines)[LINE_MAX_CH], int max, int *count)
+{
+	struct report r;
+	struct stage4_arg a;
+	u32 v600, v16c;
+
+	r.line = lines;
+	r.max = max;
+	r.n = 0;
+	a.r = &r;
+	a.ok = 0;
+
+	if (!emi_base)
+		emi_base = mblock_reserve_ext(&g_boot_arg->mblock_info, EMI_SIZE,
+					      EMI_ALIGN, EMI_LIMIT, 0,
+					      "novalk-consys");
+	if (!emi_base || emi_base < 0x40000000ULL ||
+	    emi_base + EMI_SIZE > EMI_LIMIT) {
+		say(&r, "EMI block: FAILED (%x)", (u32)emi_base);
+		emi_base = 0;
+		*count = r.n;
+		return 0;
+	}
+	say(&r, "EMI block %08x +4MB", (u32)emi_base);
+
+	{
+		struct report quiet = r;
+		char scratch[8][LINE_MAX_CH];
+
+		quiet.line = scratch;
+		quiet.max = 8;
+		quiet.n = 0;
+
+		(void)stage2_cycle(&quiet, 0, 1, &v600, &v16c, NULL,
+				   stage4_probe, &a);
+	}
+
+	say(&r, "mcu 600=%04x", v600 & 0xffff);
+	say(&r, a.ok ? "RESULT: WI-FI CORE POWERED ON" : "RESULT: FUNC_ON FAILED");
+	*count = r.n;
+
+	return a.ok;
 }

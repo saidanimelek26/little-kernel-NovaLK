@@ -98,6 +98,12 @@ int novalk_consys_stage2(char (*lines)[46], int max, int *count);
  * Returns 1 when any bytes came back.
  */
 int novalk_consys_stage3(char (*lines)[46], int max, int *count);
+/*
+ * Wi-Fi bring-up, stage 4: send WMT Wi-Fi FUNC_ON command ({01 06 02 00 03 01})
+ * over STP Type 4 to power on the Wi-Fi hardware core.
+ * Returns 1 on success event (status 0x00).
+ */
+int novalk_consys_stage4(char (*lines)[46], int max, int *count);
 void novalk_lock_settings(int touch_ok);
 
 void novalk_fastboot_ui_show(void);

@@ -1052,7 +1052,7 @@ static void app_power(void)
 static void app_wifi(void)
 {
 	static char lines[20][46];
-	struct rect btn1, btn2, btn3;
+	struct rect btn1, btn2, btn3, btn4;
 	const char *title = NULL;
 	int count = 0;
 	int ran = 0;
@@ -1060,12 +1060,12 @@ static void app_wifi(void)
 	int x = 0, y = 0, touching;
 	int i;
 
-	btn1.w = btn2.w = btn3.w = 220;
-	btn1.h = btn2.h = btn3.h = 110;
-	btn1.y = btn2.y = btn3.y = H - 300;
-	btn1.x = W / 2 - 110 - 15 - 220;
-	btn2.x = W / 2 - 110;
-	btn3.x = W / 2 + 110 + 15;
+	btn1.w = btn2.w = btn3.w = btn4.w = 220;
+	btn1.h = btn2.h = btn3.h = btn4.h = 95;
+	btn1.y = btn2.y = H - 320;
+	btn3.y = btn4.y = H - 210;
+	btn1.x = btn3.x = W / 2 - 235;
+	btn2.x = btn4.x = W / 2 + 15;
 
 	app_begin("WI-FI");
 
@@ -1073,30 +1073,33 @@ static void app_wifi(void)
 		video_fill_rect(C_BG, 0, 120, W, H - 120);
 
 		if (!ran) {
-			text_center(W / 2, 170, 3, C_ERROR, C_BG, "EXPERIMENTAL");
-			text_center(W / 2, 250, 2, C_TEXT, C_BG,
+			text_center(W / 2, 160, 3, C_ERROR, C_BG, "EXPERIMENTAL");
+			text_center(W / 2, 230, 2, C_TEXT, C_BG,
 				    "STAGE 1  power the block, read ID");
-			text_center(W / 2, 300, 2, C_TEXT, C_BG,
+			text_center(W / 2, 265, 2, C_TEXT, C_BG,
 				    "STAGE 2  load patches, start MCU");
-			text_center(W / 2, 350, 2, C_TEXT, C_BG,
-				    "STAGE 3  open BTIF, talk to MCU");
+			text_center(W / 2, 300, 2, C_TEXT, C_BG,
+				    "STAGE 3  open BTIF, STP query");
+			text_center(W / 2, 335, 2, C_TEXT, C_BG,
+				    "STAGE 4  WMT Wi-Fi FUNC_ON");
 			text_center(W / 2, 380, 2, C_DIM, C_BG,
 				    "Browsing is NOT available yet.");
-			text_center(W / 2, 450, 2, C_ERROR, C_BG,
+			text_center(W / 2, 430, 2, C_ERROR, C_BG,
 				    "If the screen freezes, hold");
-			text_center(W / 2, 490, 2, C_ERROR, C_BG,
+			text_center(W / 2, 470, 2, C_ERROR, C_BG,
 				    "POWER for 10 s to reboot.");
 		} else {
 			text_center(W / 2, 140, 3, ok ? C_OK : C_ERROR, C_BG,
 				    title);
 			for (i = 0; i < count; i++)
-				video_draw_text(24, 200 + i * 38, 2, C_TEXT,
+				video_draw_text(24, 185 + i * 32, 2, C_TEXT,
 						C_BG, lines[i]);
 		}
 
 		draw_button(&btn1, "STAGE 1", 3, 0, 0);
 		draw_button(&btn2, "STAGE 2", 3, 0, 0);
 		draw_button(&btn3, "STAGE 3", 3, 0, 0);
+		draw_button(&btn4, "STAGE 4", 3, 0, 0);
 		video_refresh();
 
 		for (;;) {
@@ -1116,11 +1119,14 @@ static void app_wifi(void)
 				} else if (inside(&btn3, x, y)) {
 					tap_feedback(&btn3, "STAGE 3", 3);
 					run = 3;
+				} else if (inside(&btn4, x, y)) {
+					tap_feedback(&btn4, "STAGE 4", 3);
+					run = 4;
 				}
 			}
 
 			if (run) {
-				text_center(W / 2, H - 400, 2, C_ACCENT, C_BG,
+				text_center(W / 2, H - 370, 2, C_ACCENT, C_BG,
 					    "RUNNING...");
 				video_refresh();
 
@@ -1135,11 +1141,16 @@ static void app_wifi(void)
 								  &count);
 					title = ok ? "MCU RUNNING" :
 						     "MCU NOT READY";
-				} else {
+				} else if (run == 3) {
 					ok = novalk_consys_stage3(lines, 20,
 								  &count);
-					title = ok ? "MCU ANSWERED" :
+				title = ok ? "MCU ANSWERED" :
 						     "NO ANSWER YET";
+				} else {
+					ok = novalk_consys_stage4(lines, 20,
+								  &count);
+					title = ok ? "WIFI CORE ON" :
+						     "FUNC_ON FAILED";
 				}
 				ran = 1;
 				in_init();
